@@ -1,0 +1,195 @@
+================================================================================
+  PROJECT CONTEXT TRACKER — MedQ&A RAG Chatbot
+  Last Updated: Phase 2 start
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PROJECT OVERVIEW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Goal:
+  Build a RAG-based medical chatbot that retrieves verified medical info,
+  generates grounded answers, and supports tool use for report analysis
+  and live drug lookups.
+
+Tech Stack (Mandatory):
+  - Python
+  - FastAPI
+  - Qdrant (vector database)
+  - Sentence Transformers (embedding)
+  - LangChain (agent/orchestration)
+  - Llama 3.1 8B via Ollama (LLM)
+  - Docker / Docker Compose
+
+Dataset:
+  - MedQuAD (Medical Question Answering Dataset)
+  - Source: Hugging Face (lavita/medical-qa-datasets or bigbio/med_qa)
+  - Size: 16,000+ Q&A pairs
+  - Domains: Diseases, symptoms, treatments, drugs, anatomy, genetics
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PHASE OVERVIEW (5 PHASES TOTAL)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Phase 1 — Dataset & Architecture    (5 days)   [COMPLETE]
+  Phase 2 — Data Ingestion            (10 days)  [IN PROGRESS]
+  Phase 3 — Model & API               (15 days)  [NOT STARTED]
+  Phase 4 — Optimization              (10 days)  [NOT STARTED]
+  Phase 5 — Evaluation                (10 days)  [NOT STARTED]
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PHASE 1 — COMPLETE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Deliverables produced:
+  [x] Phase 1 Document (.docx) — fully written and validated
+
+What was defined in Phase 1:
+
+  INGESTION FLOW (offline, one-time):
+    1. Load MedQuAD from Hugging Face (datasets library)
+    2. Clean text — remove noise, fix formatting, drop empties
+    3. Chunk — 300-500 tokens per chunk, 50-token overlap
+    4. Embed — Sentence Transformers all-MiniLM-L6-v2 → 384-dim vectors
+    5. Store in Qdrant — upsert with deterministic UUID per chunk
+       Payload fields: chunk_text, source, category, topic, chunk_index
+
+  INFERENCE FLOW (runs per user request):
+    1. User sends message via FastAPI POST /chat
+    2. LangChain Agent Router classifies request:
+       - Type A: General medical Q&A → RAG path
+       - Type B: PDF report upload → Tool 1
+       - Type C: Drug name detected → Tool 2
+    3. Path A (General Q&A):
+       Embed query → Qdrant top-5 search → LangChain prompt → Llama 3.1 8B → answer
+    4. Path B (Report Upload — Tool 1):
+       Extract PDF text → embed + Qdrant search → send report + context to LLM → plain-language explanation
+    5. Path C (Drug Query — Tool 2):
+       Detect drug name → scrape drugs.com / FDA → send scraped info + question to LLM → sourced answer
+    6. Final answer returned via FastAPI
+
+  TWO TOOLS:
+    Tool 1 — PDF Report Analyser
+      Trigger: PDF file attached to request
+      Input: PDF (lab results, discharge summary, diagnosis)
+      Processing: PyMuPDF extraction → embed → Qdrant context → LLM
+      Output: Plain-language explanation with medical context
+
+    Tool 2 — Drug Information Retriever
+      Trigger: Drug name detected in message
+      Input: Drug name (via regex / spaCy NER)
+      Data source: drugs.com (primary), FDA (fallback)
+      Processing: httpx scrape → BeautifulSoup parse → LLM
+      Output: Dosage, side effects, interactions — with source URL cited
+
+  KEY DESIGN DECISIONS:
+    - Chunk size 300-500 tokens, 50-token overlap
+    - Deterministic point IDs (source + chunk_index hash) for safe re-runs
+    - Cosine similarity, top-k=5
+    - Same embedding model for ingestion and inference (critical)
+    - Stateless inference — no server-side session storage
+    - Async FastAPI — non-blocking I/O throughout
+
+  PROJECT STRUCTURE (defined):
+    app/
+    ├── api/routes/chat.py, health.py
+    ├── api/dependencies.py
+    ├── services/retrieval.py, embedding.py, llm.py, agent.py
+    ├── ingestion/loader.py, cleaner.py, chunker.py, indexer.py
+    ├── tools/report_tool.py, drug_tool.py
+    ├── models/schemas.py
+    ├── utils/config.py, logger.py
+    ├── main.py
+    docker-compose.yml, Dockerfile, requirements.txt, .env.example
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PHASE 2 — DATA INGESTION [IN PROGRESS]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Goal:
+  Build the full ingestion pipeline as a standalone, re-runnable script.
+  Output: Populated Qdrant collection "medquad_chunks" ready for Phase 3.
+
+Files to produce:
+  [ ] app/utils/config.py          — env config, constants
+  [ ] app/utils/logger.py          — structured logging setup
+  [ ] app/ingestion/loader.py      — load MedQuAD from Hugging Face
+  [ ] app/ingestion/cleaner.py     — text cleaning pipeline
+  [ ] app/ingestion/chunker.py     — 300-500 token chunking with overlap
+  [ ] app/ingestion/indexer.py     — Qdrant upsert with deterministic IDs
+  [ ] run_ingestion.py             — entry point script to run full pipeline
+  [ ] requirements.txt             — all Python dependencies
+  [ ] docker-compose.yml           — Qdrant service setup
+  [ ] .env.example                 — environment variable template
+
+Ingestion pipeline parameters:
+  - Embedding model: sentence-transformers/all-MiniLM-L6-v2
+  - Vector dimensions: 384
+  - Chunk size: 400 tokens (target, with 300-500 range)
+  - Chunk overlap: 50 tokens
+  - Batch size for embedding: 64
+  - Qdrant collection name: medquad_chunks
+  - Qdrant distance metric: Cosine
+  - Point ID: UUID5 derived from (source + chunk_index)
+
+Progress:
+  [x] app/utils/config.py       — pydantic-settings, lru_cache singleton, all env vars
+  [x] app/utils/logger.py       — structlog setup, get_logger(), noisy lib suppression
+  [x] app/ingestion/loader.py   — HuggingFace load, field alias resolution, skip empties
+  [x] app/ingestion/cleaner.py  — HTML decode/strip, unicode norm, whitespace, dedup
+  [x] app/ingestion/chunker.py  — tiktoken cl100k, sliding window, overlap, Q+A combine
+  [x] app/ingestion/indexer.py  — SentenceTransformer, Qdrant upsert, UUID5 deterministic IDs
+  [x] run_ingestion.py          — pipeline entry point, step-by-step with error exits
+  [x] requirements.txt          — all dependencies pinned
+  [x] docker-compose.yml        — Qdrant + Ollama + API services, healthchecks, volumes
+  [x] Dockerfile                — python:3.11-slim, spaCy model download
+  [x] .env.example              — all env vars documented
+  [x] app/**/__init__.py        — all package init files created
+
+  PHASE 2 STATUS: COMPLETE — all ingestion files written
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PHASE 3 — MODEL & API [NOT STARTED]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Plan (to be detailed when Phase 2 is complete):
+  - Build query → embedding → retrieval pipeline
+  - Implement LangChain agent router
+  - Build POST /chat and GET /health endpoints
+  - Integrate Tool 1 (PDF) and Tool 2 (Drug scraper)
+  - Wire everything to Llama 3.1 8B via Ollama
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PHASE 4 — OPTIMIZATION [NOT STARTED]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Plan:
+  - Performance tuning, refactoring, logging, Dockerize full stack
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PHASE 5 — EVALUATION [NOT STARTED]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Plan:
+  - Test system quality, validate responses, document limitations
+  - Final report + demo-ready system
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  OPEN DECISIONS / NOTES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  - OCR for scanned PDFs deferred to Phase 4
+  - Drug scraper may need maintenance if drugs.com changes HTML structure
+  - NER for drug name detection: regex first, spaCy as fallback
+  - User is switching accounts due to cooldown — context file is the handoff
+
+================================================================================
+  HOW TO RESUME
+================================================================================
+
+When picking this up on a new account / new session:
+  1. Share this file with Claude at the start of the conversation.
+  2. Say which phase / file you want to continue from.
+  3. Claude will read the context and continue without re-explanation.
+
+================================================================================
