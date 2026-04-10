@@ -10,6 +10,7 @@ Fires N concurrent requests to the /chat endpoint and reports:
 Usage:
     python test_concurrency.py
     python test_concurrency.py --n 15 --url http://localhost:8000
+    python test_concurrency.py --n 10 --mode detailed
 """
 
 import argparse
@@ -42,13 +43,14 @@ async def send_request(
     session_id: str,
     message: str,
     index: int,
+    mode: str,
 ) -> dict:
     start = time.perf_counter()
     try:
         response = await client.post(
             f"{url}/api/v1/chat",
-            data={"session_id": session_id, "message": message},
-            timeout=120.0,
+            data={"session_id": session_id, "message": message, "mode": mode},
+            timeout=300.0,
         )
         elapsed = time.perf_counter() - start
         success = response.status_code == 200
@@ -72,20 +74,20 @@ async def send_request(
         }
 
 
-async def run_test(n: int, url: str) -> None:
-    questions = (QUESTIONS * 3)[:n]  # repeat if n > 15
+async def run_test(n: int, url: str, mode: str) -> None:
+    questions = (QUESTIONS * 3)[:n]
 
     print(f"\n{'='*60}")
     print(f"  Concurrency Test — {n} simultaneous requests")
+    print(f"  Mode: {mode}")
     print(f"  Target: {url}")
     print(f"{'='*60}\n")
 
     async with httpx.AsyncClient() as client:
         wall_start = time.perf_counter()
 
-        # Fire all requests at the same time
         tasks = [
-            send_request(client, url, f"session_{i}", questions[i], i)
+            send_request(client, url, f"session_{i}", questions[i], i, mode)
             for i in range(n)
         ]
         results = await asyncio.gather(*tasks)
@@ -94,8 +96,8 @@ async def run_test(n: int, url: str) -> None:
 
     # ── Report ────────────────────────────────────────────────────────────────
     successes = [r for r in results if r["success"]]
-    failures = [r for r in results if not r["success"]]
-    times = [r["elapsed"] for r in results]
+    failures  = [r for r in results if not r["success"]]
+    times     = [r["elapsed"] for r in results]
 
     print(f"{'─'*60}")
     print(f"  Results:")
@@ -111,7 +113,6 @@ async def run_test(n: int, url: str) -> None:
     print(f"    Sum of times   : {sum(times):.1f}s")
     print(f"{'─'*60}")
 
-    # If wall clock << sum of times, requests ran in parallel
     parallelism = sum(times) / wall_elapsed
     print(f"  Parallelism factor: {parallelism:.1f}x")
     print(f"  (1.0 = sequential, higher = more concurrent)\n")
@@ -125,7 +126,7 @@ async def run_test(n: int, url: str) -> None:
     print(f"  Per-request breakdown:")
     for r in sorted(results, key=lambda x: x["index"]):
         status = "✓" if r["success"] else "✗"
-        tool = f" [{r['tool_used']}]" if r.get("tool_used") else ""
+        tool   = f" [{r['tool_used']}]" if r.get("tool_used") else ""
         print(f"    {status} [{r['index']:2d}] {r['elapsed']:5.1f}s  {r['question'][:45]}{tool}")
 
     print(f"\n{'='*60}\n")
@@ -133,8 +134,9 @@ async def run_test(n: int, url: str) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--n", type=int, default=10, help="Number of concurrent requests")
-    parser.add_argument("--url", type=str, default="http://localhost:8000")
+    parser.add_argument("--n",    type=int, default=10,             help="Number of concurrent requests")
+    parser.add_argument("--url",  type=str, default="http://localhost:8000")
+    parser.add_argument("--mode", type=str, default="concise",      help="Response mode: concise or detailed")
     args = parser.parse_args()
 
-    asyncio.run(run_test(args.n, args.url))
+    asyncio.run(run_test(args.n, args.url, args.mode))

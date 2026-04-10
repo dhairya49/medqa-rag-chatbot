@@ -2,16 +2,16 @@
 app/services/agent.py
 
 Async RAG agent — all blocking calls run in thread pools.
-Handles 10-15 concurrent requests without blocking the event loop.
+Handles 10+ concurrent requests without blocking the event loop.
 
-Supports two response modes:
-  - "concise"  : 3-5 sentence answer, fast (~8-12s locally)
-  - "detailed" : full explanation, slower (~40-120s locally)
-  Default: "concise"
+Two response modes:
+  concise  — 150 token hard limit, fast (~8-10s locally)
+  detailed — full response, slower (~40-120s locally)
 """
 
 import asyncio
 import re
+from app.utils.config import get_settings
 from app.utils.logger import get_logger
 from app.services.embedding import get_embedding_service
 from app.services.retrieval import get_retrieval_service
@@ -19,6 +19,10 @@ from app.services.llm import get_llm_service
 from app.models.schemas import ChatResponse, SourceChunk
 
 logger = get_logger(__name__)
+
+# ── Token limits per mode ─────────────────────────────────────────────────────
+
+_CONCISE_TOKENS = 150
 
 # ── Prompts ───────────────────────────────────────────────────────────────────
 
@@ -39,15 +43,15 @@ Context:
 Question:
 {question}
 
-Answer (3-5 sentences only):"""
+Answer:"""
 
 RAG_PROMPT_DETAILED = """\
-You are a helpful medical assistant. Your job is to answer the user's question \
-clearly and accurately using only the medical information provided in the context below.
+You are a helpful medical assistant. Answer the user's question clearly \
+and accurately using only the medical information provided in the context below.
 
 Guidelines:
 - Explain in simple, plain language suitable for a general audience.
-- If the context does not contain enough information to answer, say so honestly.
+- If the context does not contain enough information, say so honestly.
 - Do not make up information. Do not go beyond what the context states.
 - If the question involves symptoms or diagnosis, remind the user to consult a doctor.
 
@@ -102,6 +106,7 @@ def _detect_drug_name(message: str) -> str | None:
 class RAGAgent:
 
     def __init__(self) -> None:
+        self._settings = get_settings()
         self._embedder = get_embedding_service()
         self._retriever = get_retrieval_service()
         self._llm = get_llm_service()
@@ -116,14 +121,12 @@ class RAGAgent:
         mode: str = "concise",
     ) -> ChatResponse:
         """
-        Async main entry point for every /chat request.
+        Main entry point for every /chat request.
 
-        Args:
-            mode: "concise"  — 3-5 sentences, fast (~8-12s locally)
-                  "detailed" — full explanation, slower (~40-120s locally)
+        mode: "concise"  → short answer, fast
+              "detailed" → full answer, slower
         """
-
-        # ── Route: PDF uploaded → Tool 1 ─────────────────────────────────────
+        # ── Tool 1: PDF report ────────────────────────────────────────────────
         if pdf_bytes is not None:
             logger.info("routing_to_report_tool", session_id=session_id)
             from app.tools.report_tool import analyse_report
@@ -145,7 +148,7 @@ class RAGAgent:
                 tool_used="report_tool",
             )
 
-        # ── Route: Drug name detected → Tool 2 ───────────────────────────────
+        # ── Tool 2: Drug lookup ───────────────────────────────────────────────
         drug_name = _detect_drug_name(message)
         if drug_name:
             logger.info("routing_to_drug_tool", session_id=session_id, drug=drug_name)
@@ -166,7 +169,7 @@ class RAGAgent:
                 tool_used="drug_tool",
             )
 
-        # ── Route: General Q&A → RAG path ────────────────────────────────────
+        # ── RAG path ──────────────────────────────────────────────────────────
         logger.info("routing_to_rag", session_id=session_id, mode=mode)
         return await self._rag_answer(session_id, message, top_k, mode)
 
@@ -175,17 +178,15 @@ class RAGAgent:
         session_id: str,
         message: str,
         top_k: int | None,
-        mode: str = "concise",
+        mode: str,
     ) -> ChatResponse:
-        """
-        Async RAG path.
-        Selects prompt template based on mode.
-        """
-        # Step 1: embed query (async — thread pool)
+        # Step 1: embed query
         query_vector = await self._embedder.embed_query(message)
 
-        # Step 2: retrieve top-k chunks (async — thread pool)
-        chunks: list[SourceChunk] = await self._retriever.search(query_vector, top_k=top_k)
+        # Step 2: retrieve chunks
+        chunks: list[SourceChunk] = await self._retriever.search(
+            query_vector, top_k=top_k
+        )
 
         if not chunks:
             logger.warning("no_chunks_retrieved", session_id=session_id)
@@ -201,12 +202,16 @@ class RAGAgent:
             f"[Source: {c.source}]\n{c.chunk_text}" for c in chunks
         )
 
-        # Step 4: select prompt based on mode
-        template = RAG_PROMPT_CONCISE if mode == "concise" else RAG_PROMPT_DETAILED
-        prompt = template.format(context=context, question=message)
+        # Step 4: select prompt and token limit based on mode
+        if mode == "concise":
+            prompt = RAG_PROMPT_CONCISE.format(context=context, question=message)
+            max_tokens = _CONCISE_TOKENS
+        else:
+            prompt = RAG_PROMPT_DETAILED.format(context=context, question=message)
+            max_tokens = self._settings.llm_max_tokens
 
-        # Step 5: call LLM (async — thread pool)
-        answer = await self._llm.invoke(prompt)
+        # Step 5: call LLM
+        answer = await self._llm.invoke(prompt, max_tokens=max_tokens)
 
         logger.info(
             "rag_answer_done",

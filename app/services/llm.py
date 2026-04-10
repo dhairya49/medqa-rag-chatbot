@@ -1,69 +1,95 @@
 """
 app/services/llm.py
 
-Async-capable LLM service — wraps Llama 3.1 8B via Ollama.
-Runs blocking LLM calls in a thread pool so the event loop stays free.
+Async-capable LLM service — calls Llama 3.1 8B via Ollama REST API directly.
+
+Why direct httpx instead of langchain_ollama:
+  - langchain_ollama does not reliably pass num_predict to Ollama
+  - Direct API call confirmed working via curl (done_reason=length, eval_count=50)
+  - Removes unnecessary abstraction layer for a simple generate call
+
+Two token limits:
+  - concise  mode → 150 tokens  (~8-10s response time)
+  - detailed mode → llm_max_tokens from config (full response)
 """
 
 import asyncio
+import httpx
 from functools import lru_cache
-
-from langchain_ollama import OllamaLLM
 
 from app.utils.config import get_settings
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+_CONCISE_TOKENS = 150
+
 
 class LLMService:
 
     def __init__(self) -> None:
         settings = get_settings()
+        self._settings = settings
+        self._generate_url = f"{settings.ollama_host}/api/generate"
         logger.info(
-            "connecting_ollama",
+            "llm_service_ready",
             host=settings.ollama_host,
             model=settings.llm_model,
         )
-        self._llm = OllamaLLM(
-            base_url=settings.ollama_host,
-            model=settings.llm_model,
-            num_predict=settings.llm_max_tokens,
-            temperature=0.2,
-            top_p=0.9,
+
+    def invoke_sync(self, prompt: str, max_tokens: int | None = None) -> str:
+        """
+        Synchronous Ollama call via httpx — runs in thread pool executor.
+        Calls /api/generate directly so num_predict is always respected.
+        """
+        tokens = max_tokens or self._settings.llm_max_tokens  # ← add this
+        logger.info("llm_invoke_start", max_tokens=max_tokens)
+        payload = {
+            "model": self._settings.llm_model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "num_predict": tokens,
+                "temperature": 0.2,
+                "top_p": 0.9,
+            },
+        }
+        response = httpx.post(
+            self._generate_url,
+            json=payload,
+            timeout=180.0,
         )
-        logger.info("ollama_ready", model=settings.llm_model)
-
-    @property
-    def llm(self) -> OllamaLLM:
-        return self._llm
-
-    def invoke_sync(self, prompt: str) -> str:
-        """Synchronous LLM call — runs in thread pool executor."""
-        logger.info("llm_invoke_start")
-        response = self._llm.invoke(prompt)
+        response.raise_for_status()
+        answer = response.json()["response"].strip()
         logger.info("llm_invoke_done")
-        return response.strip()
+        return answer
 
-    async def invoke(self, prompt: str) -> str:
+    async def invoke(self, prompt: str, max_tokens: int | None = None) -> str:
         """
-        Async LLM call — offloads blocking Ollama call to thread pool.
-        Allows other requests to be processed while waiting for LLM response.
+        Async LLM call — offloads blocking httpx call to thread pool.
+        Allows other requests to be processed while waiting for response.
+
+        Args:
+            prompt     : fully formatted prompt string
+            max_tokens : hard token limit — pass 150 for concise, None for detailed
         """
+        tokens = max_tokens or self._settings.llm_max_tokens
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self.invoke_sync, prompt)
+        return await loop.run_in_executor(
+            None, self.invoke_sync, prompt, max_tokens
+        )
 
-    def health_check_sync(self) -> bool:
+    async def health_check(self) -> bool:
+        """Ping Ollama with a minimal request. Used by GET /health."""
         try:
-            self._llm.invoke("ping")
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                None, self.invoke_sync, "ping", 5
+            )
             return True
         except Exception as exc:
             logger.warning("ollama_health_check_failed", error=str(exc))
             return False
-
-    async def health_check(self) -> bool:
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self.health_check_sync)
 
 
 @lru_cache(maxsize=1)
