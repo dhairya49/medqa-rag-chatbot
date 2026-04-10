@@ -5,36 +5,23 @@ Tool 2 — Drug Information Retriever.
 
 Flow:
   1. Scrape drugs.com for the given drug name (primary source)
-  2. If drugs.com fails or returns no useful content → fall back to FDA API
-  3. Send scraped info + user question to Llama 3.1 8B
+  2. If drugs.com fails → fall back to FDA API
+  3. Send scraped info + user question to LLM
   4. Return answer with source URL cited
 
-Design notes:
-  - Uses httpx for async-compatible HTTP requests (sync mode here, async in Phase 4)
-  - Uses BeautifulSoup for HTML parsing
-  - FDA fallback uses the official openFDA REST API (no scraping, JSON response)
-  - LLM is given the raw scraped text as context — it summarises and answers
-  - Source URL is always included in the response for transparency
-  - If both sources fail, returns a clear failure message without hallucinating
-
-Depends on:
-  - httpx               — HTTP client
-  - beautifulsoup4      — HTML parsing for drugs.com
-  - app/services/llm.py — LLM generation
+Runs in a thread pool executor (called from agent.py via run_in_executor)
+so all calls here must be synchronous — use llm.invoke_sync() not llm.invoke().
 """
 
 import httpx
 from bs4 import BeautifulSoup
-
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# ── Constants ─────────────────────────────────────────────────────────────────
-
-_DRUGS_COM_BASE = "https://www.drugs.com"
-_FDA_API_BASE = "https://api.fda.gov/drug/label.json"
-_REQUEST_TIMEOUT = 10  # seconds
+_DRUGS_COM_BASE    = "https://www.drugs.com"
+_FDA_API_BASE      = "https://api.fda.gov/drug/label.json"
+_REQUEST_TIMEOUT   = 10
 _MAX_SCRAPED_CHARS = 3000
 
 _HEADERS = {
@@ -43,8 +30,6 @@ _HEADERS = {
         "educational research purposes)"
     )
 }
-
-# ── Prompt template ───────────────────────────────────────────────────────────
 
 DRUG_PROMPT = """\
 You are a helpful medical assistant providing factual drug information \
@@ -66,47 +51,36 @@ User question:
 Answer:"""
 
 
-# ── drugs.com scraper ─────────────────────────────────────────────────────────
-
 def _scrape_drugs_com(drug_name: str) -> tuple[str | None, str | None]:
-    """
-    Scrape drugs.com for drug information.
-
-    Returns:
-        (text_content, source_url) if successful
-        (None, None) if failed
-    """
-    # drugs.com uses lowercase hyphenated URLs e.g. /metformin.html
     slug = drug_name.lower().replace(" ", "-")
-    url = f"{_DRUGS_COM_BASE}/{slug}.html"
+    url  = f"{_DRUGS_COM_BASE}/{slug}.html"
 
     try:
-        response = httpx.get(url, headers=_HEADERS, timeout=_REQUEST_TIMEOUT, follow_redirects=True)
-
+        response = httpx.get(
+            url, headers=_HEADERS, timeout=_REQUEST_TIMEOUT, follow_redirects=True
+        )
         if response.status_code != 200:
             logger.warning("drugs_com_not_found", drug=drug_name, status=response.status_code)
             return None, None
 
-        soup = BeautifulSoup(response.text, "html.parser")
-
-        # drugs.com stores the main drug info in .drugHeader and .contentBox divs
+        soup             = BeautifulSoup(response.text, "html.parser")
         content_sections = []
 
-        # Drug header (name, generic name, drug class)
         header = soup.find("div", class_="drugHeader")
         if header:
             content_sections.append(header.get_text(separator=" ", strip=True))
 
-        # Main content sections (uses, warnings, side effects, dosage)
         for section in soup.find_all("div", class_=["contentBox", "drug-content"]):
             text = section.get_text(separator=" ", strip=True)
-            if len(text) > 50:  # skip empty/tiny sections
+            if len(text) > 50:
                 content_sections.append(text)
 
         if not content_sections:
-            # fallback: grab all paragraph text
-            paragraphs = soup.find_all("p")
-            content_sections = [p.get_text(strip=True) for p in paragraphs if len(p.get_text(strip=True)) > 40]
+            paragraphs     = soup.find_all("p")
+            content_sections = [
+                p.get_text(strip=True) for p in paragraphs
+                if len(p.get_text(strip=True)) > 40
+            ]
 
         if not content_sections:
             logger.warning("drugs_com_no_content", drug=drug_name)
@@ -121,49 +95,29 @@ def _scrape_drugs_com(drug_name: str) -> tuple[str | None, str | None]:
         return None, None
 
 
-# ── FDA API fallback ──────────────────────────────────────────────────────────
-
 def _fetch_fda(drug_name: str) -> tuple[str | None, str | None]:
-    """
-    Query the openFDA drug label API as fallback.
-    Returns (text_content, source_url) or (None, None).
-    """
-    params = {
-        "search": f'openfda.brand_name:"{drug_name}"',
-        "limit": 1,
-    }
+    params     = {"search": f'openfda.brand_name:"{drug_name}"', "limit": 1}
     source_url = f"{_FDA_API_BASE}?search=openfda.brand_name:{drug_name}&limit=1"
 
     try:
         response = httpx.get(
-            _FDA_API_BASE,
-            params=params,
-            headers=_HEADERS,
-            timeout=_REQUEST_TIMEOUT,
+            _FDA_API_BASE, params=params, headers=_HEADERS, timeout=_REQUEST_TIMEOUT
         )
-
         if response.status_code != 200:
             logger.warning("fda_api_not_found", drug=drug_name, status=response.status_code)
             return None, None
 
-        data = response.json()
+        data    = response.json()
         results = data.get("results", [])
-
         if not results:
             logger.warning("fda_api_empty_results", drug=drug_name)
             return None, None
 
-        label = results[0]
-
-        # Extract the most useful fields from the FDA label
+        label    = results[0]
         sections = []
         for field in [
-            "indications_and_usage",
-            "warnings",
-            "adverse_reactions",
-            "dosage_and_administration",
-            "contraindications",
-            "drug_interactions",
+            "indications_and_usage", "warnings", "adverse_reactions",
+            "dosage_and_administration", "contraindications", "drug_interactions",
         ]:
             value = label.get(field)
             if value and isinstance(value, list):
@@ -181,34 +135,20 @@ def _fetch_fda(drug_name: str) -> tuple[str | None, str | None]:
         return None, None
 
 
-# ── Main entry point ──────────────────────────────────────────────────────────
-
-def lookup_drug(
-    drug_name: str,
-    user_question: str,
-    llm,
-) -> dict:
+def lookup_drug(drug_name: str, user_question: str, llm) -> dict:
     """
     Full drug lookup pipeline with fallback.
-
-    Args:
-        drug_name    : detected drug name from user message
-        user_question: full user message for context
-        llm          : LLMService instance (from agent)
-
-    Returns:
-        dict with keys: answer (str), source_url (str)
+    Synchronous — runs inside run_in_executor from agent.py.
     """
-
-    # Step 1: try drugs.com first
+    # Step 1: try drugs.com
     drug_info, source_url = _scrape_drugs_com(drug_name)
 
-    # Step 2: fall back to FDA if drugs.com failed
+    # Step 2: fall back to FDA
     if not drug_info:
         logger.info("falling_back_to_fda", drug=drug_name)
         drug_info, source_url = _fetch_fda(drug_name)
 
-    # Step 3: if both failed, return honest failure message
+    # Step 3: both failed
     if not drug_info:
         logger.warning("all_drug_sources_failed", drug=drug_name)
         return {
@@ -221,17 +161,13 @@ def lookup_drug(
             "source_url": None,
         }
 
-    # Step 4: build prompt and call LLM
+    # Step 4: invoke_sync — we are in a thread pool, not async context
     prompt = DRUG_PROMPT.format(
         source_url=source_url,
         drug_info=drug_info,
         question=user_question,
     )
-
-    answer = llm.invoke(prompt)
+    answer = llm.invoke_sync(prompt)
     logger.info("drug_lookup_done", drug=drug_name, source=source_url)
 
-    return {
-        "answer": answer,
-        "source_url": source_url,
-    }
+    return {"answer": answer, "source_url": source_url}
