@@ -25,8 +25,7 @@ import uuid
 import streamlit as st
 from datetime import datetime
 
-from phase2_medqa_project.app.frontend.api_client import check_health, send_message, send_report, ChatResult
-
+from api_client import check_health, send_message, send_report, ChatResult
 # ── Page config ───────────────────────────────────────────────────────────────
 
 st.set_page_config(
