@@ -35,10 +35,10 @@ class Settings(BaseSettings):
     # ── Retrieval ─────────────────────────────────────────────────────────────
     top_k: int = 5
 
-    # ── LLM (Groq) ────────────────────────────────────────────────────────────
-    groq_api_key: str = ""
-    llm_model: str = "llama-3.1-8b-instant"   # Groq model name for Llama 3.1 8B
-    llm_max_tokens: int = 2048
+    # ── LLM (Mistral) ─────────────────────────────────────────────────────────
+    mistral_api_key: str = ""
+    llm_model: str = "mistral-small-latest"  # fast, free tier, no TPM limit
+    llm_max_tokens: int = 512                # concise answers for speed
 
     # ── Dataset ───────────────────────────────────────────────────────────────
     hf_dataset_name: str = "lavita/medical-qa-datasets"
@@ -59,6 +59,6 @@ def get_settings() -> Settings:
     Example:
         from app.utils.config import get_settings
         settings = get_settings()
-        print(settings.groq_api_key)
+        print(settings.mistral_api_key)
     """
     return Settings()
