@@ -11,10 +11,11 @@ Endpoints used:
   POST /api/v1/chat/report  — report tool (PDF upload)
 """
 
+import os
 import httpx
 from dataclasses import dataclass, field
 
-BASE_URL = "http://localhost:8000/api/v1"
+BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000/api/v1")
 TIMEOUT  = 180.0   # Ollama can be slow locally
 
 

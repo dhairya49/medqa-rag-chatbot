@@ -1,0 +1,23 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# System dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python dependencies — frontend only, stays lean
+COPY requirements-frontend.txt .
+RUN pip install --no-cache-dir -r requirements-frontend.txt
+
+# Copy frontend source only
+COPY app/frontend/ ./app/frontend/
+
+EXPOSE 8501
+
+# Streamlit config — disable telemetry, set server settings
+CMD ["streamlit", "run", "app/frontend/app.py", \
+     "--server.port=8501", \
+     "--server.address=0.0.0.0", \
+     "--browser.gatherUsageStats=false"]
