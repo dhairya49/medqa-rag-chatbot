@@ -38,7 +38,8 @@ class LLMService:
             api_key=settings.mistral_api_key,
             model=settings.llm_model,
             max_tokens=settings.llm_max_tokens,
-            temperature=0.2,
+            temperature=settings.llm_temperature,
+            top_p=settings.llm_top_p,
         )
         logger.info("mistral_ready", model=settings.llm_model)
 

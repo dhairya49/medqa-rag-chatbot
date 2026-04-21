@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     # ── Qdrant ────────────────────────────────────────────────────────────────
     qdrant_host: str = "localhost"
     qdrant_port: int = 6333
-    qdrant_collection: str = "medquad_chunks"
+    qdrant_collection: str = "medquad_clean"          # new clean collection
 
     # ── Embedding ─────────────────────────────────────────────────────────────
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
@@ -29,19 +29,24 @@ class Settings(BaseSettings):
     embedding_batch_size: int = 64
 
     # ── Chunking ──────────────────────────────────────────────────────────────
-    chunk_size: int = 400
-    chunk_overlap: int = 50
+    chunk_size: int = 350
+    chunk_overlap: int = 75
 
     # ── Retrieval ─────────────────────────────────────────────────────────────
-    top_k: int = 5
+    top_k: int = 8
+    retrieval_candidate_pool: int = 24
+    retrieval_keyword_weight: float = 0.35
+    retrieval_dense_weight: float = 0.65
 
     # ── LLM (Mistral) ─────────────────────────────────────────────────────────
     mistral_api_key: str = ""
-    llm_model: str = "mistral-small-latest"  # fast, free tier, no TPM limit
-    llm_max_tokens: int = 512                # concise answers for speed
+    llm_model: str = "mistral-small-latest"           # fast, free tier, no TPM limit
+    llm_max_tokens: int = 1024                        # concise answers for speed 512
+    llm_temperature: float = 0.15
+    llm_top_p: float = 0.9
 
     # ── Dataset ───────────────────────────────────────────────────────────────
-    hf_dataset_name: str = "lavita/medical-qa-datasets"
+    hf_dataset_name: str = "lavita/MedQuAD"  # clean structured medical Q&A
     hf_dataset_split: str = "train"
 
     # ── App ───────────────────────────────────────────────────────────────────

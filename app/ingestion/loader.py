@@ -33,7 +33,7 @@ def load_medquad() -> list[dict[str, Any]]:
 
     # Dataset config — 'all-processed' is the combined config for lavita/medical-qa-datasets
     dataset_name = settings.hf_dataset_name
-    dataset_config = "all-processed"
+    dataset_config = "default"
     dataset_split = settings.hf_dataset_split
 
     log.info("loading_dataset", dataset=dataset_name, config=dataset_config, split=dataset_split)

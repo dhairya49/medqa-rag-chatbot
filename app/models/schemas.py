@@ -26,6 +26,7 @@ class ChatRequest(BaseModel):
     session_id: str = Field(..., description="Unique session identifier")
     message: str = Field(..., min_length=1, max_length=2000, description="User message")
     top_k: Optional[int] = Field(None, ge=1, le=20, description="Override retrieval top-k")
+    mode: str = Field("concise", description="Answer style: concise, detailed, or structured")
 
 
 class SourceChunk(BaseModel):

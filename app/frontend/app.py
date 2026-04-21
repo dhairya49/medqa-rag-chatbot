@@ -25,7 +25,8 @@ import uuid
 import streamlit as st
 from datetime import datetime
 
-from api_client import check_health, send_message, send_report, ChatResult
+from api_client import get_health_details, send_message, send_report, ChatResult
+from quality_eval import summarize_response_quality
 # ── Page config ───────────────────────────────────────────────────────────────
 
 st.set_page_config(
@@ -279,6 +280,104 @@ hr { border-color: #21262d; }
 }
 .source-score { color: #3fb950; }
 .source-name  { color: #7d8590; }
+
+/* ── Live quality cards ── */
+.quality-wrap {
+    margin: 0.55rem 0 0.5rem 0.25rem;
+    padding: 0.8rem 0.85rem;
+    border: 1px solid #21262d;
+    border-radius: 12px;
+    background:
+        radial-gradient(circle at top right, rgba(56,139,253,0.12), transparent 32%),
+        linear-gradient(135deg, #11161d 0%, #151b23 100%);
+}
+.quality-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+    gap: 12px;
+}
+.quality-title {
+    font-size: 0.68rem;
+    color: #7d8590;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-family: 'IBM Plex Mono', monospace;
+}
+.quality-overall {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 0.35rem 0.55rem;
+    border-radius: 999px;
+    border: 1px solid rgba(56,139,253,0.35);
+    background: rgba(56,139,253,0.12);
+}
+.quality-overall-score {
+    color: #e6edf3;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+.quality-overall-label {
+    color: #8b949e;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+.quality-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 0.55rem;
+}
+.quality-card {
+    border: 1px solid #21262d;
+    border-radius: 10px;
+    padding: 0.65rem 0.75rem;
+    background: rgba(13,17,23,0.65);
+}
+.quality-card-title {
+    font-size: 0.66rem;
+    color: #7d8590;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-family: 'IBM Plex Mono', monospace;
+}
+.quality-card-score {
+    margin-top: 0.35rem;
+    font-size: 1rem;
+    color: #e6edf3;
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 600;
+}
+.quality-card-label {
+    margin-top: 0.1rem;
+    font-size: 0.72rem;
+    color: #3fb950;
+}
+.quality-card-range {
+    margin-top: 0.22rem;
+    font-size: 0.64rem;
+    color: #8b949e;
+    font-family: 'IBM Plex Mono', monospace;
+    line-height: 1.35;
+}
+.quality-note {
+    margin-top: 0.65rem;
+    font-size: 0.7rem;
+    color: #6e7681;
+    font-family: 'IBM Plex Mono', monospace;
+}
+.quality-subtitle {
+    margin-top: 0.9rem;
+    margin-bottom: 0.45rem;
+    font-size: 0.66rem;
+    color: #7d8590;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-family: 'IBM Plex Mono', monospace;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -290,8 +389,9 @@ def _new_session_id() -> str:
 
 if "session_id"   not in st.session_state: st.session_state.session_id   = _new_session_id()
 if "messages"     not in st.session_state: st.session_state.messages     = []
-if "mode"         not in st.session_state: st.session_state.mode         = "concise"
-if "top_k"        not in st.session_state: st.session_state.top_k        = 5
+if "mode"         not in st.session_state: st.session_state.mode         = "structured"
+if "top_k"        not in st.session_state: st.session_state.top_k        = 8
+if "retrieval_profile" not in st.session_state: st.session_state.retrieval_profile = "high_recall"
 if "pdf_bytes"    not in st.session_state: st.session_state.pdf_bytes    = None
 if "pdf_filename" not in st.session_state: st.session_state.pdf_filename = None
 
@@ -307,28 +407,175 @@ def _tool_badge(tool_used: str | None) -> str:
         return '<span class="badge badge-rag">🔬 RAG</span>'
 
 
+def _quality_card(title: str, score: float, label: str) -> str:
+    return (
+        '<div class="quality-card">'
+        f'<div class="quality-card-title">{title}</div>'
+        f'<div class="quality-card-score">{round(score * 100)}%</div>'
+        f'<div class="quality-card-label">{label}</div>'
+        '</div>'
+    )
+
+
+def _quality_value(quality: dict, key: str, fallback: float = 0.0) -> float:
+    value = quality.get(key, fallback)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _quality_label(quality: dict, key: str, score: float) -> str:
+    labels = quality.get("labels", {})
+    if isinstance(labels, dict):
+        label = labels.get(key)
+        if isinstance(label, str) and label:
+            return label
+    if score >= 0.85:
+        return "Excellent"
+    if score >= 0.7:
+        return "Strong"
+    if score >= 0.55:
+        return "Moderate"
+    return "Weak"
+
+
+def _metric_card(title: str, score: float | None) -> str:
+    metric_ranges = {
+        "Precision": (0.60, 0.75),
+        "Recall": (0.50, 0.70),
+        "F1": (0.55, 0.70),
+        "ROUGE-1": (0.55, 0.70),
+        "ROUGE-2": (0.25, 0.40),
+        "ROUGE-L": (0.45, 0.60),
+        "BLEU": (0.20, 0.35),
+    }
+    minimum, strong = metric_ranges.get(title, (0.0, 1.0))
+    if score is None:
+        score_text = "n/a"
+        label = "Unavailable"
+    else:
+        score_text = f"{score:.2f}"
+        if score >= strong:
+            label = "Great"
+        elif score >= minimum:
+            label = "Good"
+        else:
+            label = "Below target"
+    return (
+        '<div class="quality-card">'
+        f'<div class="quality-card-title">{title}</div>'
+        f'<div class="quality-card-score">{score_text}</div>'
+        f'<div class="quality-card-label">{label}</div>'
+        f'<div class="quality-card-range">min {minimum:.2f}  |  great {strong:.2f}</div>'
+        '</div>'
+    )
+
+
+def _quality_panel(quality: dict, latency_seconds: float | None) -> str:
+    accuracy_score = _quality_value(quality, "accuracy_score")
+    relevance_score = _quality_value(quality, "relevance_score")
+    groundedness_score = _quality_value(quality, "groundedness_score")
+    safety_score = _quality_value(quality, "safety_score")
+    latency_score = _quality_value(quality, "latency_score")
+    overall_score = _quality_value(quality, "overall_score")
+
+    summary_cards = "".join([
+        _quality_card("Accuracy", accuracy_score, _quality_label(quality, "accuracy", accuracy_score)),
+        _quality_card("Relevance", relevance_score, _quality_label(quality, "relevance", relevance_score)),
+        _quality_card("Grounding", groundedness_score, _quality_label(quality, "groundedness", groundedness_score)),
+        _quality_card("Safety", safety_score, _quality_label(quality, "safety", safety_score)),
+        _quality_card("Latency", latency_score, _quality_label(quality, "latency", latency_score)),
+    ])
+    metrics = quality.get("metrics", {})
+    metric_cards = "".join([
+        _metric_card("Precision", metrics.get("precision")),
+        _metric_card("Recall", metrics.get("recall")),
+        _metric_card("F1", metrics.get("f1")),
+        _metric_card("ROUGE-1", metrics.get("rouge_1")),
+        _metric_card("ROUGE-2", metrics.get("rouge_2")),
+        _metric_card("ROUGE-L", metrics.get("rouge_l")),
+        _metric_card("BLEU", metrics.get("bleu")),
+    ])
+    latency_text = f"{latency_seconds:.2f}s" if latency_seconds is not None else "n/a"
+    return (
+        '<div class="quality-wrap">'
+        '<div class="quality-header">'
+        '<div class="quality-title">Live Response Quality Signals</div>'
+        '<div class="quality-overall">'
+        f'<span class="quality-overall-score">{round(overall_score * 100)}%</span>'
+        f'<span class="quality-overall-label">{_quality_label(quality, "overall", overall_score)}</span>'
+        '</div>'
+        '</div>'
+        f'<div class="quality-grid">{summary_cards}</div>'
+        '<div class="quality-subtitle">Formal Overlap Metrics</div>'
+        f'<div class="quality-grid">{metric_cards}</div>'
+        f'<div class="quality-note">Overlap metrics vs {quality.get("metric_basis", "unavailable")} · measured latency {latency_text}</div>'
+        '</div>'
+    )
+
+
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 
 with st.sidebar:
     # Health check
     st.markdown('<div class="sidebar-label">System</div>', unsafe_allow_html=True)
-    if check_health():
+    health = get_health_details()
+    if health.online:
         st.markdown('<span class="health-online">● Backend online</span>', unsafe_allow_html=True)
+        st.caption(
+            f"Status: {health.status} · Qdrant: {health.qdrant} · LLM: {health.ollama}"
+        )
+        st.caption(f"Collection: `{health.collection}`")
     else:
         st.markdown('<span class="health-offline">● Backend offline — start uvicorn</span>', unsafe_allow_html=True)
+        st.caption("Collection: `unknown`")
 
     st.markdown("---")
 
     # Mode
     st.markdown('<div class="sidebar-label">Response Mode</div>', unsafe_allow_html=True)
+    mode_options = ["concise", "detailed", "structured"]
+    mode_index = mode_options.index(st.session_state.mode) if st.session_state.mode in mode_options else 0
     mode = st.radio(
         label     = "mode",
-        options   = ["concise", "detailed"],
-        index     = 0 if st.session_state.mode == "concise" else 1,
-        format_func = lambda x: "⚡ Concise  (~8-12s)" if x == "concise" else "📋 Detailed  (~40-120s)",
+        options   = mode_options,
+        index     = mode_index,
+        format_func = lambda x: (
+            "⚡ Concise  (~8-12s)" if x == "concise"
+            else "📋 Detailed  (~15-30s)" if x == "detailed"
+            else "🧩 Structured  (~15-30s)"
+        ),
         label_visibility = "collapsed",
     )
     st.session_state.mode = mode
+
+    st.markdown("---")
+
+    st.markdown('<div class="sidebar-label">Retrieval Profile</div>', unsafe_allow_html=True)
+    retrieval_profile = st.radio(
+        label="retrieval_profile",
+        options=["high_precision", "balanced", "high_recall"],
+        index=["high_precision", "balanced", "high_recall"].index(st.session_state.retrieval_profile),
+        format_func=lambda x: {
+            "high_precision": "Tight Evidence",
+            "balanced": "Balanced",
+            "high_recall": "Broad Coverage",
+        }[x],
+        label_visibility="collapsed",
+    )
+    st.session_state.retrieval_profile = retrieval_profile
+    profile_top_k = {
+        "high_precision": 5,
+        "balanced": 8,
+        "high_recall": 12,
+    }[retrieval_profile]
+    if st.session_state.top_k != profile_top_k:
+        st.session_state.top_k = profile_top_k
+
+    st.caption(
+        "Tight Evidence favors precision, Balanced mixes support and coverage, Broad Coverage pulls more chunks."
+    )
 
     st.markdown("---")
 
@@ -454,6 +701,12 @@ with chat_container:
                         unsafe_allow_html=True,
                     )
 
+                    if msg.get("quality"):
+                        st.markdown(
+                            _quality_panel(msg["quality"], msg.get("latency_seconds")),
+                            unsafe_allow_html=True,
+                        )
+
                     # Sources expander
                     sources = msg.get("sources", [])
                     if sources:
@@ -499,8 +752,19 @@ with col_send:
     send_clicked = st.button("Send →", use_container_width=True, type="primary")
 
 # Mode reminder caption
-mode_label = "⚡ Concise" if st.session_state.mode == "concise" else "📋 Detailed"
-st.caption(f"{mode_label} mode · Top-K: {st.session_state.top_k} · Session: `{st.session_state.session_id[:8]}...`")
+mode_label = (
+    "⚡ Concise" if st.session_state.mode == "concise"
+    else "📋 Detailed" if st.session_state.mode == "detailed"
+    else "🧩 Structured"
+)
+profile_label = {
+    "high_precision": "Tight Evidence",
+    "balanced": "Balanced",
+    "high_recall": "Broad Coverage",
+}[st.session_state.retrieval_profile]
+st.caption(
+    f"{mode_label} mode · Retrieval: {profile_label} · Top-K: {st.session_state.top_k} · Session: `{st.session_state.session_id[:8]}...`"
+)
 
 
 # ── Send handler ──────────────────────────────────────────────────────────────
@@ -516,8 +780,16 @@ if send_clicked and user_input.strip():
     })
 
     # Call backend
-    with st.spinner("Thinking..." if st.session_state.mode == "concise" else "Generating detailed response..."):
-        if st.session_state.pdf_bytes:
+    spinner_text = (
+        "Thinking..."
+        if st.session_state.mode == "concise"
+        else "Generating detailed response..."
+        if st.session_state.mode == "detailed"
+        else "Building structured answer..."
+    )
+    with st.spinner(spinner_text):
+        used_report = st.session_state.pdf_bytes is not None
+        if used_report:
             result: ChatResult = send_report(
                 session_id = st.session_state.session_id,
                 message    = user_input.strip(),
@@ -536,6 +808,12 @@ if send_clicked and user_input.strip():
                 top_k      = st.session_state.top_k,
             )
 
+    quality = summarize_response_quality(
+        user_input.strip(),
+        result,
+        used_report=used_report,
+    )
+
     now_reply = datetime.now().strftime("%H:%M:%S")
 
     if result.error:
@@ -546,6 +824,8 @@ if send_clicked and user_input.strip():
             "error"    : True,
             "tool_used": None,
             "sources"  : [],
+            "quality"  : quality.__dict__,
+            "latency_seconds": result.latency_seconds,
         })
     else:
         st.session_state.messages.append({
@@ -556,6 +836,8 @@ if send_clicked and user_input.strip():
             "sources"   : result.sources,
             "source_url": result.source_url,
             "error"     : False,
+            "quality"   : quality.__dict__,
+            "latency_seconds": result.latency_seconds,
         })
 
     st.rerun()

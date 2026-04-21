@@ -22,7 +22,8 @@ router = APIRouter()
 async def chat(
     session_id: str = Form(..., description="Unique session identifier"),
     message: str = Form(..., min_length=1, max_length=2000, description="User message"),
-    top_k: int = Form(default=5, ge=1, le=20, description="Number of chunks to retrieve"),
+    mode: str = Form(default="concise", description="Answer style"),
+    top_k: int = Form(default=8, ge=1, le=20, description="Number of chunks to retrieve"),
 ):
     logger.info("chat_request", session_id=session_id, message_preview=message[:60])
 
@@ -31,6 +32,7 @@ async def chat(
         response = await agent.run(          # ← await added
             session_id=session_id,
             message=message,
+            mode=mode,
             top_k=top_k,
             pdf_bytes=None,
         )
@@ -52,6 +54,7 @@ async def chat_with_report(
         max_length=2000,
         description="Optional question about the report",
     ),
+    mode: str = Form(default="detailed", description="Answer style"),
     file: UploadFile = File(..., description="PDF medical report to analyse"),
 ):
     if not file.filename.lower().endswith(".pdf"):
@@ -88,6 +91,7 @@ async def chat_with_report(
         response = await agent.run(          # ← await added
             session_id=session_id,
             message=message,
+            mode=mode,
             pdf_bytes=pdf_bytes,
         )
         return response

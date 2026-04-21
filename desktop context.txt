@@ -1,0 +1,211 @@
+================================================================================
+  PROJECT CONTEXT TRACKER — MedQ&A RAG Chatbot
+  Last Updated: 2026-04-15 (Today's session)
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PROJECT OVERVIEW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Goal:
+  RAG-based medical chatbot that retrieves verified medical information,
+  answers in grounded plain language, supports report analysis and drug lookup,
+  and now shows live quality metrics in the frontend for evaluation/demo.
+
+Project path:
+  /Users/dhairya/Projects/RAG_ChatBot/phase2_medqa_project/
+
+Environment:
+  macOS (Apple Silicon), Python 3.14, local venv
+
+Stack:
+  FastAPI · Qdrant · Sentence Transformers · LangChain · Mistral API · Streamlit
+
+Data:
+  lavita/medical-qa-datasets
+  Existing indexed collection: medquad_chunks (already populated)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  CURRENT PHASE STATUS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Phase 1 — Dataset & Architecture    [COMPLETE]
+  Phase 2 — Data Ingestion            [COMPLETE]
+  Phase 3 — Model & API               [COMPLETE]
+  Phase 4 — Optimization              [COMPLETE]
+  Phase 5 — Evaluation                [IN PROGRESS]
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  WHAT CHANGED TODAY (IMPORTANT)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1) Frontend quality system added and shown per response
+  - Added live quality cards under every assistant response in Streamlit.
+  - Shows heuristic signals:
+      accuracy, relevance, groundedness, safety, latency, overall
+  - Added formal overlap metrics display:
+      precision, recall, F1, ROUGE-1, ROUGE-2, ROUGE-L, BLEU
+  - Added threshold bands in UI:
+      each metric shows "min X | great Y" plus status label.
+
+2) Formal metric basis clarified
+  - Metrics currently compare answer vs retrieved context (when available).
+  - These are grounding-overlap indicators, NOT gold-answer correctness metrics.
+  - Do not present them as clinical accuracy validation.
+
+3) Retrieval/path improvements in backend
+  - Retrieval no longer returns plain dense top-k only.
+  - Implemented over-fetch + rerank:
+      dense similarity + lexical overlap hybrid score
+  - New config controls:
+      retrieval_candidate_pool, retrieval_keyword_weight, retrieval_dense_weight
+
+4) Prompting and output-structure tightening
+  - Reworked RAG prompts into mode-specific templates:
+      concise, detailed, structured
+  - Prompts explicitly prohibit unsupported facts and require missing-info honesty.
+  - Structured mode enforces sectioned output for higher coverage consistency.
+  - Report tool and drug tool prompts also tightened and structured.
+
+5) Frontend control improvements
+  - Added "structured" answer mode in sidebar.
+  - Added retrieval profiles:
+      high_precision (Tight Evidence), balanced, high_recall (Broad Coverage)
+  - Profiles auto-adjust top_k defaults.
+
+6) LLM decoding controls moved to config
+  - llm_temperature and llm_top_p now configurable (instead of hardcoded).
+  - Current defaults set lower for hallucination control.
+
+7) Chunking logic updated (future ingestion)
+  - Updated chunker toward smaller chunks and higher overlap:
+      chunk_size 350, overlap 75
+  - Added sentence-aware windowing fallback behavior.
+  - Critical caveat:
+      this affects only newly ingested vectors.
+      Existing Qdrant points remain old chunk boundaries until re-ingestion.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  FILES CHANGED TODAY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Backend/API:
+  app/api/routes/chat.py
+  app/models/schemas.py
+  app/services/agent.py
+  app/services/llm.py
+  app/services/retrieval.py
+  app/tools/report_tool.py
+  app/tools/drug_tool.py
+  app/utils/config.py
+  app/ingestion/chunker.py
+
+Frontend:
+  app/frontend/app.py
+  app/frontend/api_client.py
+  app/frontend/quality_eval.py
+  app/frontend/test_quality_eval.py
+
+Context:
+  desktop context.txt (this file)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  CURRENT DEFAULTS / BEHAVIOR
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Retrieval:
+  top_k default: 8
+  candidate pool: 24
+  rerank blend: dense 0.65 + lexical 0.35
+
+Chunking (for next ingestion run):
+  chunk_size: 350
+  chunk_overlap: 75
+
+LLM:
+  model: mistral-small-latest
+  temperature: 0.15
+  top_p: 0.9
+
+UI:
+  default mode: structured
+  retrieval profile default: high_recall
+  quality panel rendered per assistant answer
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  KNOWN ISSUES RIGHT NOW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1) health endpoint async bug still present
+  Symptoms:
+    warning: cannot unpack non-iterable coroutine object
+  Cause:
+    health route calls async health checks without awaiting.
+  Impact:
+    health panel can show degraded/incorrect status while chat may still work.
+
+2) source_url in response schema gap
+  Drug tool returns source_url; schema/UI contract is partially inconsistent.
+  (UI handles it, model schema still needs explicit alignment if desired.)
+
+3) metric expectations
+  Current formal overlap scores are low for many prompts;
+  re-ingestion likely needed for meaningful recall lift from new chunking settings.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  RE-INGESTION DECISION GUIDANCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Can improve without re-ingestion:
+  - Use structured mode
+  - Use broad coverage retrieval profile / higher top_k
+  - Keep stricter prompts and lower temperature
+
+Need re-ingestion for chunking-overlap benefits:
+  - yes, absolutely required
+  - old indexed chunks do not change retroactively
+
+Expected impact after re-ingestion (ballpark):
+  - Recall/F1/ROUGE-L often improve materially if chunk boundaries were limiting.
+  - Precision may stay similar or dip slightly if top_k is too aggressive.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  RECOMMENDED NEXT STEPS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1) Fix health async bug in app/api/routes/health.py.
+2) Re-ingest into same or new collection with chunk_size=350, overlap=75.
+3) Run A/B evaluation (old vs re-ingested collection) on fixed prompt set.
+4) Tune retrieval profile/top_k after re-ingestion to recover precision.
+5) Finalize evaluation writeup:
+   explicitly label overlap metrics as context-grounding metrics.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  STARTUP / QUICK RUN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Local:
+  docker-compose up qdrant -d
+  source venv/bin/activate
+  uvicorn app.main:app --host 0.0.0.0 --port 8000
+  streamlit run app/frontend/app.py
+
+Health:
+  curl http://localhost:8000/api/v1/health
+
+Chat test:
+  curl -X POST http://localhost:8000/api/v1/chat \
+    -F "session_id=test1" \
+    -F "message=What is hypertension?" \
+    -F "mode=structured" \
+    -F "top_k=12"
+
+================================================================================
+  HANDOFF NOTE
+================================================================================
+
+This file is intended for cross-LLM continuity.
+A new assistant should read this first, then inspect changed files if implementing
+further fixes (especially health route and re-ingestion/eval workflow).
+
+================================================================================

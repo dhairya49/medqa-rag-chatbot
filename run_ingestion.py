@@ -32,6 +32,8 @@ log = get_logger("run_ingestion")
 
 
 def main() -> None:
+    get_settings.cache_clear()
+
     settings = get_settings()
     start = time.perf_counter()
 

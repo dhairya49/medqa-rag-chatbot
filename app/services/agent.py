@@ -15,15 +15,16 @@ from app.models.schemas import ChatResponse, SourceChunk
 
 logger = get_logger(__name__)
 
-RAG_PROMPT = """\
-You are a helpful medical assistant. Your job is to answer the user's question \
-clearly and accurately using only the medical information provided in the context below.
+PROMPT_TEMPLATES = {
+    "concise": """\
+You are a careful medical RAG assistant. Answer the user's question using only the supplied context.
 
-Guidelines:
-- Explain in simple, plain language suitable for a general audience.
-- If the context does not contain enough information to answer, say so honestly.
-- Do not make up information. Do not go beyond what the context states.
-- If the question involves symptoms or diagnosis, remind the user to consult a doctor.
+Rules:
+- Give a short answer in 2-4 bullet points.
+- Include only facts supported by the context.
+- If the context is incomplete, explicitly say what is missing.
+- Do not speculate, diagnose, or invent treatments.
+- If symptoms or urgent concerns are mentioned, advise consulting a healthcare professional.
 
 Context:
 {context}
@@ -31,7 +32,65 @@ Context:
 Question:
 {question}
 
-Answer:"""
+Answer:""",
+    "detailed": """\
+You are a careful medical RAG assistant. Produce a complete, grounded answer using only the supplied context.
+
+Rules:
+- Cover all important points from the context that answer the question.
+- Prefer precise medical wording, then explain it in plain language.
+- Do not add unsupported facts or generic filler.
+- If relevant information is missing, state that clearly.
+- End with a brief caution to consult a healthcare professional for diagnosis or treatment decisions.
+
+Required format:
+Summary:
+- ...
+
+Key Details:
+- ...
+
+Context:
+{context}
+
+Question:
+{question}
+
+Response:""",
+    "structured": """\
+You are a careful medical RAG assistant. Build a structured answer using only the supplied context.
+
+Rules:
+- Include every relevant point supported by the context.
+- Do not add information that is not explicitly supported.
+- Use short bullet lists and concrete wording.
+- If a section is not supported by the context, write "Not stated in the provided context."
+- Finish with a brief note recommending professional medical advice when appropriate.
+
+Required sections:
+Direct Answer:
+- ...
+
+Symptoms / Signs:
+- ...
+
+Causes / Risk Factors:
+- ...
+
+Diagnosis / Tests:
+- ...
+
+Treatment / Management:
+- ...
+
+Context:
+{context}
+
+Question:
+{question}
+
+Structured answer:""",
+}
 
 _DRUG_PATTERNS = [
     r"\b(?:drug|medication|medicine)[:\s]+([A-Za-z][A-Za-z0-9\-]{3,})",
@@ -81,6 +140,7 @@ class RAGAgent:
         self,
         session_id: str,
         message: str,
+        mode: str = "concise",
         top_k: int | None = None,
         pdf_bytes: bytes | None = None,
     ) -> ChatResponse:
@@ -135,12 +195,13 @@ class RAGAgent:
 
         # ── Route: General Q&A → RAG path ────────────────────────────────────
         logger.info("routing_to_rag", session_id=session_id)
-        return await self._rag_answer(session_id, message, top_k)
+        return await self._rag_answer(session_id, message, mode, top_k)
 
     async def _rag_answer(
         self,
         session_id: str,
         message: str,
+        mode: str,
         top_k: int | None,
     ) -> ChatResponse:
         """
@@ -152,7 +213,11 @@ class RAGAgent:
         query_vector = await self._embedder.embed_query(message)
 
         # Step 2: retrieve top-k chunks (async — thread pool)
-        chunks: list[SourceChunk] = await self._retriever.search(query_vector, top_k=top_k)
+        chunks: list[SourceChunk] = await self._retriever.search(
+            query_text=message,
+            query_vector=query_vector,
+            top_k=top_k,
+        )
 
         if not chunks:
             logger.warning("no_chunks_retrieved", session_id=session_id)
@@ -169,12 +234,13 @@ class RAGAgent:
         )
 
         # Step 4: fill prompt
-        prompt = RAG_PROMPT.format(context=context, question=message)
+        prompt_template = PROMPT_TEMPLATES.get(mode, PROMPT_TEMPLATES["concise"])
+        prompt = prompt_template.format(context=context, question=message)
 
         # Step 5: call LLM (async — thread pool)
         answer = await self._llm.invoke(prompt)
 
-        logger.info("rag_answer_done", session_id=session_id, chunks_used=len(chunks))
+        logger.info("rag_answer_done", session_id=session_id, chunks_used=len(chunks), mode=mode)
 
         return ChatResponse(
             session_id=session_id,
