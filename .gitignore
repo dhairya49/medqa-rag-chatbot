@@ -1,0 +1,10 @@
+venv/
+__pycache__/
+*.pyc
+.env
+*.egg-info/
+.DS_Store
+qdrant_storage/
+*.pdf
+*.log
+.pytest_c
