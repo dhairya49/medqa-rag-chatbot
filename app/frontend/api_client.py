@@ -15,7 +15,16 @@ import os
 from dataclasses import dataclass, field
 from time import perf_counter
 
-BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000/api/v1")
+import streamlit as st
+
+def _get_base_url() -> str:
+    try:
+        return st.secrets["API_BASE_URL"]
+    except Exception:
+        return os.getenv("API_BASE_URL", "http://localhost:8000/api/v1")
+
+BASE_URL = _get_base_url()
+
 TIMEOUT  = 180.0   # Ollama can be slow locally
 
 

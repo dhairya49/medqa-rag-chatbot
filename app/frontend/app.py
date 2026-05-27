@@ -618,6 +618,4 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 if st.button("Open Docs →", key="open_docs"):
-    import webbrowser
-    webbrowser.open("file:///Users/dhairya/Projects/RAG_ChatBot/phase2_medqa_project/app/frontend/medqa_project_docs.html")
-
+    st.info("Documentation available in the project repository.")
