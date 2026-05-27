@@ -7,4 +7,6 @@ __pycache__/
 qdrant_storage/
 *.pdf
 *.log
-.pytest_c*.snapshot
+.pytest_c*
+.snapshot
+*.snapshot
