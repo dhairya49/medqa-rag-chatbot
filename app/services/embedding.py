@@ -2,36 +2,37 @@
 app/services/embedding.py
 
 Async-capable embedding service for inference time.
+Uses fastembed (ONNX-based) instead of sentence-transformers
+to avoid torch dependency — much lighter for cloud deployment.
 Runs CPU-bound encode() in a thread pool so it doesn't block the event loop.
 """
 
 import asyncio
 from functools import lru_cache
-from sentence_transformers import SentenceTransformer
+from fastembed import TextEmbedding
 
 from app.utils.config import get_settings
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+# fastembed model name for all-MiniLM-L6-v2
+FASTEMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+
 
 class EmbeddingService:
 
     def __init__(self) -> None:
         settings = get_settings()
-        logger.info("loading_embedding_model", model=settings.embedding_model)
-        self._model = SentenceTransformer(settings.embedding_model)
+        logger.info("loading_embedding_model", model=FASTEMBED_MODEL)
+        self._model = TextEmbedding(model_name=FASTEMBED_MODEL)
         self._dim = settings.embedding_dim
-        logger.info("embedding_model_ready", model=settings.embedding_model, dim=self._dim)
+        logger.info("embedding_model_ready", model=FASTEMBED_MODEL, dim=self._dim)
 
     def embed_query_sync(self, text: str) -> list[float]:
         """Synchronous encode — runs in thread pool executor."""
-        vector = self._model.encode(
-            text,
-            normalize_embeddings=True,
-            show_progress_bar=False,
-        )
-        return vector.tolist()
+        embeddings = list(self._model.embed([text]))
+        return embeddings[0].tolist()
 
     async def embed_query(self, text: str) -> list[float]:
         """
