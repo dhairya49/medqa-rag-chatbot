@@ -61,7 +61,7 @@ async def lifespan(app: FastAPI):
         host=settings.app_host,
         port=settings.app_port,
         llm_model=settings.llm_model,
-        qdrant_host=settings.qdrant_host,
+        qdrant_url=settings.qdrant_url,
         collection=settings.qdrant_collection,
     )
 
@@ -129,6 +129,10 @@ def create_app() -> FastAPI:
     # ── Routers ───────────────────────────────────────────────────────────────
     app.include_router(chat_router, prefix="/api/v1", tags=["chat"])
     app.include_router(health_router, prefix="/api/v1", tags=["health"])
+
+    @app.get("/")
+    def root():
+        return {"status": "ok", "service": "MedQA RAG API"}
 
     return app
 

@@ -19,8 +19,8 @@ class Settings(BaseSettings):
     )
 
     # ── Qdrant ────────────────────────────────────────────────────────────────
-    qdrant_host: str = "localhost"
-    qdrant_port: int = 6333
+    qdrant_url: str = "https://928292ee-dad4-4b1b-b0c7-3b5f76308fa5.europe-west3-0.gcp.cloud.qdrant.io"
+    qdrant_api_key: str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIiwic3ViamVjdCI6ImFwaS1rZXk6ZTBkMDJkMzctZWJiZC00ZjllLTg1NTUtMmZkZWI1YzQ3NWU2In0.PKZi5bypFPpTjQSQtw726N2ysfX95zI8tkOlF-5pOt4"
     qdrant_collection: str = "medquad_clean"          # new clean collection
 
     # ── Embedding ─────────────────────────────────────────────────────────────
@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     app_port: int = 8000
     log_level: str = "INFO"
 
+    redis_url: str = "redis://localhost:6379"
+    session_ttl_seconds: int = 86400      # 24 hours
+    session_max_turns: int = 10           # last 10 turns = 20 messages fetched
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

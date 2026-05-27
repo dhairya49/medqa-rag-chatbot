@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MedQ&A RAG Chatbot — Project Docs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0d1117;
+    --bg2:       #161b22;
+    --bg3:       #1c2128;
+    --border:    #21262d;
+    --border2:   #30363d;
+    --text:      #e6edf3;
+    --text2:     #cdd9e5;
+    --text3:     #8b949e;
+    --text4:     #7d8590;
+    --text5:     #484f58;
+    --blue:      #388bfd;
+    --blue-bg:   #1a2e4a;
+    --blue-bd:   #1f3c5e;
+    --green:     #3fb950;
+    --green-bg:  #1e3a2f;
+    --green-bd:  #2d5a3d;
+    --amber:     #d29922;
+    --amber-bg:  #2e2419;
+    --amber-bd:  #4a3820;
+    --red:       #f85149;
+    --red-bg:    #1a1014;
+    --warn-bg:   #2d2208;
+    --warn-text: #d29922;
+    --warn-bd:   #4a3820;
+    --ok-bg:     #0d2119;
+    --ok-text:   #3fb950;
+    --ok-bd:     #1a4428;
+    --err-bg:    #1a0d0d;
+    --err-text:  #f85149;
+    --err-bd:    #3d1a1a;
+    --radius:    6px;
+    --radius-lg: 10px;
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: 'IBM Plex Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  /* ── Layout ── */
+  .page {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 2rem 2rem 4rem;
+  }
+
+  /* ── Top bar ── */
+  .top-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 1.25rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 1.75rem;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand-icon {
+    width: 40px; height: 40px;
+    border-radius: 8px;
+    background: var(--blue-bg);
+    border: 1px solid var(--blue-bd);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px;
+  }
+  .brand-name {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 16px; font-weight: 500;
+    color: var(--text);
+  }
+  .brand-sub {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px; color: var(--text4);
+    letter-spacing: 0.1em; text-transform: uppercase;
+    margin-top: 2px;
+  }
+  .phase-pills { display: flex; gap: 6px; flex-wrap: wrap; }
+  .pill {
+    padding: 3px 10px; border-radius: 999px;
+    font-size: 11px; font-weight: 500;
+    font-family: 'IBM Plex Mono', monospace;
+    border: 1px solid; cursor: default;
+  }
+  .pill-done    { background: var(--ok-bg);   color: var(--ok-text);   border-color: var(--ok-bd); }
+  .pill-progress{ background: var(--warn-bg); color: var(--warn-text); border-color: var(--warn-bd); }
+
+  /* ── Stat cards ── */
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+    gap: 10px;
+    margin-bottom: 1.75rem;
+  }
+  .stat-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 0.9rem 1rem;
+  }
+  .stat-label { font-size: 11px; color: var(--text4); }
+  .stat-val   { font-size: 22px; font-weight: 500; color: var(--text); margin-top: 4px; }
+  .stat-val.sm{ font-size: 13px; margin-top: 6px; }
+  .stat-sub   { font-size: 11px; color: var(--text4); margin-top: 2px; }
+
+  /* ── Tabs ── */
+  .nav-tabs {
+    display: flex; gap: 2px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 1.5rem;
+    overflow-x: auto;
+  }
+  .tab-btn {
+    padding: 8px 16px;
+    font-size: 12px; font-weight: 500;
+    font-family: 'IBM Plex Mono', monospace;
+    background: none; border: none; cursor: pointer;
+    color: var(--text4);
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: color 0.15s;
+    white-space: nowrap;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--text); border-bottom-color: var(--blue); }
+
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  /* ── Section label ── */
+  .section-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px; color: var(--text4);
+    letter-spacing: 0.12em; text-transform: uppercase;
+    margin-bottom: 0.75rem;
+  }
+
+  /* ── Architecture ── */
+  .arch-flow { display: flex; flex-direction: column; gap: 10px; }
+  .arch-row  { display: flex; align-items: stretch; gap: 8px; flex-wrap: wrap; }
+  .arch-box {
+    flex: 1; min-width: 160px;
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 10px 14px;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+  .arch-box b   { display: block; font-size: 12px; font-weight: 500; color: var(--text); margin-bottom: 3px; }
+  .arch-box span{ font-size: 11px; color: var(--text4); }
+  .arch-arrow   { color: var(--text5); font-size: 16px; display: flex; align-items: center; flex-shrink: 0; }
+
+  .path-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 10px; margin-top: 1rem;
+  }
+  .path-card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 12px 14px;
+  }
+  .path-title { font-size: 12px; font-weight: 500; color: var(--text); margin-bottom: 10px; }
+  .path-step {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px; color: var(--text4);
+    padding-left: 14px; position: relative;
+    margin-bottom: 5px; line-height: 1.4;
+  }
+  .path-step::before { content: "→"; position: absolute; left: 0; color: var(--text5); }
+
+  .services-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px; margin-top: 0.5rem;
+  }
+
+  /* ── Files ── */
+  .file-dir {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px; color: var(--blue);
+    margin-top: 14px; margin-bottom: 5px;
+    letter-spacing: 0.04em;
+  }
+  .file-dir:first-child { margin-top: 0; }
+  .file-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 7px 12px;
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 4px;
+    cursor: pointer; transition: background 0.12s, border-color 0.12s;
+    text-decoration: none;
+  }
+  .file-row:hover { background: var(--bg3); border-color: var(--border2); }
+  .file-name {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px; color: var(--text); flex: 1;
+  }
+  .file-badge {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px; padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--border2);
+    color: var(--text4);
+    flex-shrink: 0;
+  }
+  .file-desc { font-size: 11px; color: var(--text4); flex-shrink: 0; }
+
+  /* ── Issues ── */
+  .issue-card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); padding: 14px 16px;
+    margin-bottom: 10px;
+  }
+  .issue-head { display: flex; align-items: center; gap: 10px; margin-bottom: 7px; flex-wrap: wrap; }
+  .issue-title { font-size: 13px; font-weight: 500; color: var(--text); flex: 1; }
+  .issue-status {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px; padding: 2px 9px;
+    border-radius: 999px; border: 1px solid; flex-shrink: 0;
+  }
+  .status-open    { background: var(--warn-bg); color: var(--warn-text); border-color: var(--warn-bd); }
+  .status-fixed   { background: var(--ok-bg);   color: var(--ok-text);   border-color: var(--ok-bd); }
+  .status-pending { background: var(--err-bg);  color: var(--err-text);  border-color: var(--err-bd); }
+  .issue-desc { font-size: 12px; color: var(--text3); line-height: 1.6; }
+  .issue-meta {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px; color: var(--text5);
+    margin-top: 8px;
+  }
+
+  /* ── Config ── */
+  .config-group { margin-bottom: 1.5rem; }
+  .config-row {
+    display: flex; align-items: baseline;
+    justify-content: space-between; gap: 1rem;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .config-row:last-child { border-bottom: none; }
+  .config-key { font-family: 'IBM Plex Mono', monospace; color: var(--text4); }
+  .config-val { font-family: 'IBM Plex Mono', monospace; color: var(--text); font-weight: 500; text-align: right; }
+
+  /* ── Roadmap ── */
+  .roadmap-item {
+    display: flex; gap: 16px;
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); padding: 14px 16px;
+    margin-bottom: 10px;
+  }
+  .rm-num {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--bg3); border: 1px solid var(--border2);
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px; font-weight: 500; color: var(--text4);
+    flex-shrink: 0; margin-top: 1px;
+  }
+  .rm-body { flex: 1; }
+  .rm-title { font-size: 13px; font-weight: 500; color: var(--text); margin-bottom: 5px; }
+  .rm-desc  { font-size: 12px; color: var(--text3); line-height: 1.6; }
+  .rm-tag {
+    display: inline-block; margin-top: 8px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px; padding: 2px 9px;
+    border-radius: 999px; border: 1px solid var(--border2);
+    color: var(--text4);
+  }
+
+  /* ── Utility ── */
+  .mt { margin-top: 1.25rem; }
+  .spacer { height: 1px; background: var(--border); margin: 1.25rem 0; }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Top bar -->
+  <div class="top-bar">
+    <div class="brand">
+      <div class="brand-icon">🏥</div>
+      <div>
+        <div class="brand-name">MedQ&amp;A RAG Chatbot</div>
+        <div class="brand-sub">Project Documentation</div>
+      </div>
+    </div>
+    <div class="phase-pills">
+      <span class="pill pill-done">P1 done</span>
+      <span class="pill pill-done">P2 done</span>
+      <span class="pill pill-done">P3 done</span>
+      <span class="pill pill-done">P4 done</span>
+      <span class="pill pill-progress">P5 in progress</span>
+    </div>
+  </div>
+
+  <!-- Stat cards -->
+  <div class="stat-grid">
+    <div class="stat-card">
+      <div class="stat-label">Qdrant vectors</div>
+      <div class="stat-val">229K</div>
+      <div class="stat-sub">medquad_chunks · cosine</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Embedding model</div>
+      <div class="stat-val sm">all-MiniLM-L6-v2</div>
+      <div class="stat-sub">384-dim · chunk 400tok/50 overlap</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">LLM</div>
+      <div class="stat-val sm">mistral-small</div>
+      <div class="stat-sub">cloud · ~2-3s/req · 50 concurrent</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">API workers</div>
+      <div class="stat-val">4</div>
+      <div class="stat-sub">FastAPI · port 8000</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Retrieval top-k</div>
+      <div class="stat-val">8</div>
+      <div class="stat-sub">pool 24 · rerank blend</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Services</div>
+      <div class="stat-val">3</div>
+      <div class="stat-sub">qdrant · api · frontend</div>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="nav-tabs">
+    <button class="tab-btn active" onclick="switchTab('arch', this)">Architecture</button>
+    <button class="tab-btn" onclick="switchTab('files', this)">Files</button>
+    <button class="tab-btn" onclick="switchTab('issues', this)">Issues</button>
+    <button class="tab-btn" onclick="switchTab('config', this)">Config</button>
+    <button class="tab-btn" onclick="switchTab('roadmap', this)">Roadmap</button>
+  </div>
+
+  <!-- ── ARCHITECTURE ── -->
+  <div id="tab-arch" class="panel active">
+    <div class="section-label">Ingestion pipeline</div>
+    <div class="arch-flow">
+      <div class="arch-row">
+        <div class="arch-box"><b>HuggingFace dataset</b><span>lavita/medical-qa-datasets · all-processed</span></div>
+        <div class="arch-arrow">→</div>
+        <div class="arch-box"><b>Cleaner + chunker</b><span>400 tok, 50 overlap → sentence-aware</span></div>
+        <div class="arch-arrow">→</div>
+        <div class="arch-box"><b>Embeddings</b><span>all-MiniLM-L6-v2 · 384-dim · thread pool</span></div>
+        <div class="arch-arrow">→</div>
+        <div class="arch-box"><b>Qdrant upsert</b><span>medquad_chunks · 229,717 points</span></div>
+      </div>
+    </div>
+
+    <div class="section-label mt">Inference paths</div>
+    <div class="path-grid">
+      <div class="path-card">
+        <div class="path-title">Path A — RAG (default)</div>
+        <div class="path-step">User query → embed</div>
+        <div class="path-step">Qdrant top-8 + rerank</div>
+        <div class="path-step">Mistral prompt</div>
+        <div class="path-step">Answer + source chunks</div>
+      </div>
+      <div class="path-card">
+        <div class="path-title">Path B — Report tool</div>
+        <div class="path-step">PDF upload → PyMuPDF</div>
+        <div class="path-step">Text embed → Qdrant</div>
+        <div class="path-step">Mistral explanation</div>
+        <div class="path-step">Structured report answer</div>
+      </div>
+      <div class="path-card">
+        <div class="path-title">Path C — Drug tool</div>
+        <div class="path-step">Drug regex detect</div>
+        <div class="path-step">drugs.com scrape</div>
+        <div class="path-step">FDA API fallback (403)</div>
+        <div class="path-step">Mistral drug answer</div>
+      </div>
+    </div>
+
+    <div class="section-label mt">Services (Docker)</div>
+    <div class="services-row">
+      <div class="arch-box"><b>qdrant :6333</b><span>volume: qdrant_storage · medquad_chunks</span></div>
+      <div class="arch-box"><b>api :8000</b><span>FastAPI · 4 workers · uvicorn</span></div>
+      <div class="arch-box"><b>frontend :8501</b><span>Streamlit · dark clinical theme</span></div>
+      <div class="arch-box"><b>Mistral cloud</b><span>mistral-small-latest · no TPM limit</span></div>
+    </div>
+  </div>
+
+  <!-- ── FILES ── -->
+  <div id="tab-files" class="panel">
+    <div class="file-dir">app/api/routes/</div>
+    <div class="file-row">
+      <span class="file-name">chat.py</span>
+      <span class="file-badge">route</span>
+      <span class="file-desc">POST /chat · /chat/report · awaits agent.run()</span>
+    </div>
+    <div class="file-row">
+      <span class="file-name">health.py</span>
+      <span class="file-badge">route</span>
+      <span class="file-desc">GET /health · async bug pending fix</span>
+    </div>
+
+    <div class="file-dir">app/services/</div>
+    <div class="file-row">
+      <span class="file-name">agent.py</span>
+      <span class="file-badge">core</span>
+      <span class="file-desc">async · strict drug regex + 50-word exclusion list</span>
+    </div>
+    <div class="file-row">
+      <span class="file-name">llm.py</span>
+      <span class="file-badge">core</span>
+      <span class="file-desc">async · ChatMistralAI · temp 0.15 · top_p 0.9</span>
+    </div>
+    <div class="file-row">
+      <span class="file-name">retrieval.py</span>
+      <span class="file-badge">core</span>
+      <span class="file-desc">over-fetch + rerank · dense 0.65 + lexical 0.35</span>
+    </div>
+    <div class="file-row">
+      <span class="file-name">embedding.py</span>
+      <span class="file-badge">core</span>
+      <span class="file-desc">async · thread pool · all-MiniLM-L6-v2</span>
+    </div>
+
+    <div class="file-dir">app/tools/</div>
+    <div class="file-row">
+      <span class="file-name">drug_tool.py</span>
+      <span class="file-badge">tool</span>
+      <span class="file-desc">drugs.com scrape → FDA fallback · source_url</span>
+    </div>
+    <div class="file-row">
+      <span class="file-name">report_tool.py</span>
+      <span class="file-badge">tool</span>
+      <span class="file-desc">PyMuPDF · /chat/report endpoint</span>
+    </div>
+
+    <div class="file-dir">app/utils/</div>
+    <div class="file-row">
+      <span class="file-name">config.py</span>
+      <span class="file-badge">util</span>
+      <span class="file-desc">mistral_api_key · retrieval params · llm_temperature</span>
+    </div>
+    <div class="file-row">
+      <span class="file-name">logger.py</span>
+      <span class="file-badge">util</span>
+      <span class="file-desc">structlog · add_logger_name removed</span>
+    </div>
+
+    <div class="file-dir">app/frontend/</div>
+    <div class="file-row">
+      <span class="file-name">app.py</span>
+      <span class="file-badge">ui</span>
+      <span class="file-desc">Streamlit · dark theme · IBM Plex fonts</span>
+    </div>
+    <div class="file-row">
+      <span class="file-name">api_client.py</span>
+      <span class="file-badge">ui</span>
+      <span class="file-desc">httpx sync · BASE_URL from env</span>
+    </div>
+
+    <div class="file-dir">app/ingestion/</div>
+    <div class="file-row">
+      <span class="file-name">chunker.py</span>
+      <span class="file-badge">ingest</span>
+      <span class="file-desc">chunk 350 · overlap 75 · sentence-aware fallback</span>
+    </div>
+    <div class="file-row">
+      <span class="file-name">loader.py</span>
+      <span class="file-badge">ingest</span>
+      <span class="file-desc">config=all-processed · no trust_remote_code</span>
+    </div>
+  </div>
+
+  <!-- ── ISSUES ── -->
+  <div id="tab-issues" class="panel">
+    <div class="issue-card">
+      <div class="issue-head">
+        <span class="issue-title">Health route async bug</span>
+        <span class="issue-status status-open">open</span>
+      </div>
+      <div class="issue-desc">health.py calls async health checks without await — coroutine objects cannot be unpacked. Health panel shows degraded/incorrect status while chat still functions.</div>
+      <div class="issue-meta">file: app/api/routes/health.py · symptom: "cannot unpack non-iterable coroutine"</div>
+    </div>
+    <div class="issue-card">
+      <div class="issue-head">
+        <span class="issue-title">Docker startup — only Qdrant auto-starts</span>
+        <span class="issue-status status-open">open</span>
+      </div>
+      <div class="issue-desc">API and frontend containers do not start automatically due to healthcheck configuration issue. Requires manual start.</div>
+      <div class="issue-meta">file: docker-compose.yml · impact: deployment friction</div>
+    </div>
+    <div class="issue-card">
+      <div class="issue-head">
+        <span class="issue-title">drugs.com returns 403</span>
+        <span class="issue-status status-fixed">handled</span>
+      </div>
+      <div class="issue-desc">Primary scraping target blocks requests. FDA API fallback is functional but label content is sparse, producing thinner drug responses.</div>
+      <div class="issue-meta">file: app/tools/drug_tool.py · fallback: FDA API · mitigation: drug ingestion into Qdrant</div>
+    </div>
+    <div class="issue-card">
+      <div class="issue-head">
+        <span class="issue-title">source_url schema gap</span>
+        <span class="issue-status status-open">open</span>
+      </div>
+      <div class="issue-desc">Drug tool returns source_url but the response schema and UI contract are only partially aligned. UI handles it; model schema needs explicit field.</div>
+      <div class="issue-meta">file: app/models/schemas.py · impact: type inconsistency</div>
+    </div>
+    <div class="issue-card">
+      <div class="issue-head">
+        <span class="issue-title">Low overlap metric scores</span>
+        <span class="issue-status status-pending">needs re-ingest</span>
+      </div>
+      <div class="issue-desc">Current ROUGE/BLEU/F1 scores are below target thresholds. Root cause is existing chunks from Phase 2 ingestion (400tok/50 overlap). New chunker settings (350/75) require full re-ingestion to take effect.</div>
+      <div class="issue-meta">existing: 229,717 points · new settings: chunk 350, overlap 75</div>
+    </div>
+  </div>
+
+  <!-- ── CONFIG ── -->
+  <div id="tab-config" class="panel">
+    <div class="config-group">
+      <div class="section-label">Retrieval</div>
+      <div class="config-row"><span class="config-key">top_k default</span><span class="config-val">8</span></div>
+      <div class="config-row"><span class="config-key">candidate pool</span><span class="config-val">24</span></div>
+      <div class="config-row"><span class="config-key">dense weight</span><span class="config-val">0.65</span></div>
+      <div class="config-row"><span class="config-key">lexical weight</span><span class="config-val">0.35</span></div>
+      <div class="config-row"><span class="config-key">profile: high_precision top_k</span><span class="config-val">5</span></div>
+      <div class="config-row"><span class="config-key">profile: balanced top_k</span><span class="config-val">8</span></div>
+      <div class="config-row"><span class="config-key">profile: high_recall top_k</span><span class="config-val">12</span></div>
+    </div>
+    <div class="config-group">
+      <div class="section-label">LLM</div>
+      <div class="config-row"><span class="config-key">model</span><span class="config-val">mistral-small-latest</span></div>
+      <div class="config-row"><span class="config-key">temperature</span><span class="config-val">0.15</span></div>
+      <div class="config-row"><span class="config-key">top_p</span><span class="config-val">0.9</span></div>
+      <div class="config-row"><span class="config-key">concurrent requests</span><span class="config-val">50 (confirmed)</span></div>
+    </div>
+    <div class="config-group">
+      <div class="section-label">Chunking (next ingestion)</div>
+      <div class="config-row"><span class="config-key">chunk_size</span><span class="config-val">350 tok</span></div>
+      <div class="config-row"><span class="config-key">chunk_overlap</span><span class="config-val">75 tok</span></div>
+      <div class="config-row"><span class="config-key">strategy</span><span class="config-val">sentence-aware windowing</span></div>
+    </div>
+    <div class="config-group">
+      <div class="section-label">Services</div>
+      <div class="config-row"><span class="config-key">Qdrant</span><span class="config-val">localhost:6333</span></div>
+      <div class="config-row"><span class="config-key">FastAPI</span><span class="config-val">localhost:8000 · 4 workers</span></div>
+      <div class="config-row"><span class="config-key">Streamlit</span><span class="config-val">localhost:8501</span></div>
+      <div class="config-row"><span class="config-key">collection</span><span class="config-val">medquad_chunks · cosine · 384-dim</span></div>
+    </div>
+  </div>
+
+  <!-- ── ROADMAP ── -->
+  <div id="tab-roadmap" class="panel">
+    <div class="roadmap-item">
+      <div class="rm-num">1</div>
+      <div class="rm-body">
+        <div class="rm-title">Fix health route async bug</div>
+        <div class="rm-desc">Add await to async health check calls in health.py. Prevents coroutine unpacking error and ensures health panel shows accurate status.</div>
+        <span class="rm-tag">app/api/routes/health.py · quick fix</span>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="rm-num">2</div>
+      <div class="rm-body">
+        <div class="rm-title">Drug data ingestion into Qdrant</div>
+        <div class="rm-desc">Write drug_ingestion.py to scrape/fetch drug data → chunk → embed → upsert into Qdrant. Update agent.py to route drug queries through RAG instead of live scraping. Eliminates 2-5s drug tool latency.</div>
+        <span class="rm-tag">drug_ingestion.py · agent.py · top 100 or 500 drugs</span>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="rm-num">3</div>
+      <div class="rm-body">
+        <div class="rm-title">Re-ingest with improved chunking</div>
+        <div class="rm-desc">Re-run ingestion pipeline with chunk_size=350 and overlap=75 using sentence-aware windowing. Expected to materially improve ROUGE-L and Recall. Run A/B evaluation against old collection before replacing.</div>
+        <span class="rm-tag">chunker.py · new or same collection · tune top_k after</span>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="rm-num">4</div>
+      <div class="rm-body">
+        <div class="rm-title">Phase 5 evaluation writeup</div>
+        <div class="rm-desc">Compute Precision@K, Recall@K, MRR, NDCG for retrieval. ROUGE-1/2/L, BLEU, cosine similarity for answers. Routing Precision/Recall/F1 for drug/RAG/report classification. Clearly label overlap metrics as context-grounding, not clinical accuracy.</div>
+        <span class="rm-tag">rouge-score · scikit-learn · test set size TBD</span>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="rm-num">5</div>
+      <div class="rm-body">
+        <div class="rm-title">Fix Docker startup (api + frontend)</div>
+        <div class="rm-desc">Resolve healthcheck dependency ordering in docker-compose.yml so api and frontend start automatically after qdrant is healthy.</div>
+        <span class="rm-tag">docker-compose.yml · depends_on · healthcheck</span>
+      </div>
+    </div>
+    <div class="roadmap-item">
+      <div class="rm-num">6</div>
+      <div class="rm-body">
+        <div class="rm-title">Align source_url in response schema</div>
+        <div class="rm-desc">Add explicit source_url field to ChatResponse schema in schemas.py. Ensure drug tool, report tool, and RAG paths are all consistent with the schema contract.</div>
+        <span class="rm-tag">app/models/schemas.py · low effort</span>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /page -->
+
+<script>
+function switchTab(name, btn) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  btn.classList.add('active');
+}
+</script>
+</body>
+</html>

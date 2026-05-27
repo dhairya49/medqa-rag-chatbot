@@ -1,0 +1,36 @@
+{
+  "$schema": "https://charm.land/crush.json",
+  "providers": {
+    "kimi": {
+      "type": "openai-compat",
+      "base_url": "https://api.moonshot.cn/v1",
+      "api_key": "sk-HZE2lkgTrxiD086mIuvNHuYwwxi70thOR4PxbxJ3QOzcobE7",
+      "models": [
+        {
+          "id": "moonshot-v1-8k",
+          "name": "Kimi 8K",
+          "context_window": 8000,
+          "default_max_tokens": 2000
+        }
+      ]
+    }
+  }
+}
+{
+  "$schema": "https://charm.land/crush.json",
+  "providers": {
+    "kimi": {
+      "type": "openai-compat",
+      "base_url": "https://api.moonshot.cn/v1",
+      "api_key": "$KIMI_API_KEY",
+      "models": [
+        {
+          "id": "moonshot-v1-8k",
+          "name": "Kimi 8K",
+          "context_window": 8000,
+          "default_max_tokens": 2000
+        }
+      ]
+    }
+  }
+}

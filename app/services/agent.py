@@ -2,7 +2,20 @@
 app/services/agent.py
 
 Async RAG agent — all blocking calls run in thread pools.
-Handles 10-15 concurrent requests without blocking the event loop.
+
+Session memory (new):
+  - SessionMemory is held as an internal service on RAGAgent.
+  - On every /chat request: history is fetched from Redis before the LLM call,
+    and the completed turn is appended after.
+  - If Redis is unavailable, history degrades to empty list — chat still works.
+  - Report tool path skips history (PDF context is self-contained).
+
+Drug routing:
+  1. Detect drug name via regex
+  2. Resolve brand → generic via RxNorm
+  3. Search drug_chunks in Qdrant
+  4. If chunks found → RAG answer with DRUG_PROMPT
+  5. If no chunks   → fallback to drug_tool.lookup_drug() (live FDA fetch)
 """
 
 import asyncio
@@ -11,9 +24,12 @@ from app.utils.logger import get_logger
 from app.services.embedding import get_embedding_service
 from app.services.retrieval import get_retrieval_service
 from app.services.llm import get_llm_service
+from app.services.session import SessionMemory
 from app.models.schemas import ChatResponse, SourceChunk
 
 logger = get_logger(__name__)
+
+# ── Prompt templates (RAG general) ───────────────────────────────────────────
 
 PROMPT_TEMPLATES = {
     "concise": """\
@@ -29,7 +45,7 @@ Rules:
 Context:
 {context}
 
-Question:
+{history}Question:
 {question}
 
 Answer:""",
@@ -53,7 +69,7 @@ Key Details:
 Context:
 {context}
 
-Question:
+{history}Question:
 {question}
 
 Response:""",
@@ -86,11 +102,62 @@ Treatment / Management:
 Context:
 {context}
 
-Question:
+{history}Question:
 {question}
 
 Structured answer:""",
 }
+
+# ── Drug-specific RAG prompt ──────────────────────────────────────────────────
+
+DRUG_RAG_PROMPT = """\
+You are a careful medical assistant answering drug-related questions using only verified FDA label data.
+
+Rules:
+- Use only the information supplied in the context below.
+- Use short bullet points and plain language.
+- If the context does not cover the user's exact question, say so clearly.
+- Do not recommend specific dosages — describe only what the source states.
+- Always remind the user to consult their doctor or pharmacist before taking any medication.
+
+Required format:
+Direct Answer:
+- ...
+
+Safety Notes:
+- ...
+
+Source-Supported Details:
+- ...
+
+Context (FDA label data):
+{context}
+
+{history}User question:
+{question}
+
+Answer:"""
+
+# ── History formatter ─────────────────────────────────────────────────────────
+
+def _format_history(history: list[dict]) -> str:
+    """
+    Convert a list of {role, content} messages into a plain-text block
+    that slots into the {history} placeholder in every prompt template.
+
+    Returns an empty string (not a labelled block) when history is empty
+    so prompts render cleanly for first-turn requests.
+    """
+    if not history:
+        return ""
+    lines = ["Conversation so far:"]
+    for msg in history:
+        role = "User" if msg["role"] == "user" else "Assistant"
+        lines.append(f"{role}: {msg['content']}")
+    lines.append("")   # blank line before the current question
+    return "\n".join(lines) + "\n"
+
+# ── Drug detection ────────────────────────────────────────────────────────────
 
 _DRUG_PATTERNS = [
     r"\b(?:drug|medication|medicine)[:\s]+([A-Za-z][A-Za-z0-9\-]{3,})",
@@ -128,12 +195,15 @@ def _detect_drug_name(message: str) -> str | None:
     return None
 
 
+# ── Agent ─────────────────────────────────────────────────────────────────────
+
 class RAGAgent:
 
     def __init__(self) -> None:
-        self._embedder = get_embedding_service()
+        self._embedder  = get_embedding_service()
         self._retriever = get_retrieval_service()
-        self._llm = get_llm_service()
+        self._llm       = get_llm_service()
+        self._memory    = SessionMemory()          # Redis-backed, degrades gracefully
         logger.info("rag_agent_initialised")
 
     async def run(
@@ -146,11 +216,14 @@ class RAGAgent:
     ) -> ChatResponse:
         """
         Async main entry point for every /chat request.
-        All blocking calls (embed, search, LLM) are awaited in thread pools.
-        Multiple requests run concurrently without blocking each other.
+
+        Routing order:
+          1. PDF uploaded       → report_tool  (no history — PDF is self-contained)
+          2. Drug name detected → drug_chunks RAG  (fallback: drug_tool)
+          3. Everything else    → medquad_chunks RAG
         """
 
-        # ── Route: PDF uploaded → Tool 1 ─────────────────────────────────────
+        # ── Route 1: PDF uploaded → report_tool (history skipped intentionally) ──
         if pdf_bytes is not None:
             logger.info("routing_to_report_tool", session_id=session_id)
             from app.tools.report_tool import analyse_report
@@ -172,30 +245,107 @@ class RAGAgent:
                 tool_used="report_tool",
             )
 
-        # ── Route: Drug name detected → Tool 2 ───────────────────────────────
+        # ── Fetch history (shared by both remaining routes) ───────────────────
+        history = await self._memory.get_history(session_id)
+
+        # ── Route 2: Drug detected → drug_chunks RAG + fallback ──────────────
         drug_name = _detect_drug_name(message)
         if drug_name:
-            logger.info("routing_to_drug_tool", session_id=session_id, drug=drug_name)
-            from app.tools.drug_tool import lookup_drug
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
-                None,
-                lambda: lookup_drug(
-                    drug_name=drug_name,
-                    user_question=message,
-                    llm=self._llm,
-                )
+            response = await self._drug_rag_answer(
+                session_id=session_id,
+                message=message,
+                raw_drug_name=drug_name,
+                top_k=top_k,
+                history=history,
             )
+            await self._memory.append_turn(session_id, message, response.answer)
+            return response
+
+        # ── Route 3: General Q&A → medquad_chunks RAG ────────────────────────
+        logger.info("routing_to_rag", session_id=session_id)
+        response = await self._rag_answer(session_id, message, mode, top_k, history)
+        await self._memory.append_turn(session_id, message, response.answer)
+        return response
+
+    # ── Drug RAG path ─────────────────────────────────────────────────────────
+
+    async def _drug_rag_answer(
+        self,
+        session_id: str,
+        message: str,
+        raw_drug_name: str,
+        top_k: int | None,
+        history: list[dict],
+    ) -> ChatResponse:
+        from app.tools.drug_tool import _resolve_generic_name
+        loop = asyncio.get_event_loop()
+        resolved_name = await loop.run_in_executor(
+            None, _resolve_generic_name, raw_drug_name
+        )
+        logger.info(
+            "routing_to_drug_rag",
+            session_id=session_id,
+            raw=raw_drug_name,
+            resolved=resolved_name,
+        )
+
+        query_vector = await self._embedder.embed_query(message)
+        k = top_k or 8
+        chunks: list[SourceChunk] = await self._retriever.search_drug_chunks(
+            drug_name=resolved_name,
+            query_text=message,
+            query_vector=query_vector,
+            top_k=k,
+        )
+
+        if chunks:
+            logger.info(
+                "drug_rag_chunks_found",
+                session_id=session_id,
+                drug=resolved_name,
+                chunks=len(chunks),
+            )
+            context = "\n\n".join(
+                f"[{c.category.replace('_', ' ').title()}]\n{c.chunk_text}"
+                for c in chunks
+            )
+            history_block = _format_history(history)
+            prompt = DRUG_RAG_PROMPT.format(
+                context=context,
+                history=history_block,
+                question=message,
+            )
+            answer = await self._llm.invoke(prompt)
             return ChatResponse(
                 session_id=session_id,
-                answer=result["answer"],
-                sources=[],
-                tool_used="drug_tool",
+                answer=answer,
+                sources=chunks,
+                tool_used="drug_rag",
             )
 
-        # ── Route: General Q&A → RAG path ────────────────────────────────────
-        logger.info("routing_to_rag", session_id=session_id)
-        return await self._rag_answer(session_id, message, mode, top_k)
+        # No chunks → live fallback (history not injected, tool handles its own prompt)
+        logger.info(
+            "drug_rag_no_chunks_fallback",
+            session_id=session_id,
+            drug=resolved_name,
+        )
+        from app.tools.drug_tool import lookup_drug
+        result = await loop.run_in_executor(
+            None,
+            lambda: lookup_drug(
+                drug_name=raw_drug_name,
+                user_question=message,
+                llm=self._llm,
+            )
+        )
+        return ChatResponse(
+            session_id=session_id,
+            answer=result["answer"],
+            sources=[],
+            tool_used="drug_tool_fallback",
+        )
+
+    # ── General RAG path ──────────────────────────────────────────────────────
 
     async def _rag_answer(
         self,
@@ -203,16 +353,9 @@ class RAGAgent:
         message: str,
         mode: str,
         top_k: int | None,
+        history: list[dict],
     ) -> ChatResponse:
-        """
-        Async RAG path:
-        embed and retrieve run concurrently where possible,
-        then LLM generates the answer.
-        """
-        # Step 1: embed query (async — thread pool)
         query_vector = await self._embedder.embed_query(message)
-
-        # Step 2: retrieve top-k chunks (async — thread pool)
         chunks: list[SourceChunk] = await self._retriever.search(
             query_text=message,
             query_vector=query_vector,
@@ -221,27 +364,37 @@ class RAGAgent:
 
         if not chunks:
             logger.warning("no_chunks_retrieved", session_id=session_id)
+            no_result_answer = (
+                "I could not find relevant medical information for your question. "
+                "Please consult a healthcare professional."
+            )
+            # Still append so follow-up questions have context
+            await self._memory.append_turn(session_id, message, no_result_answer)
             return ChatResponse(
                 session_id=session_id,
-                answer="I could not find relevant medical information for your question. Please consult a healthcare professional.",
+                answer=no_result_answer,
                 sources=[],
                 tool_used=None,
             )
 
-        # Step 3: build context
         context = "\n\n".join(
             f"[Source: {c.source}]\n{c.chunk_text}" for c in chunks
         )
-
-        # Step 4: fill prompt
+        history_block = _format_history(history)
         prompt_template = PROMPT_TEMPLATES.get(mode, PROMPT_TEMPLATES["concise"])
-        prompt = prompt_template.format(context=context, question=message)
-
-        # Step 5: call LLM (async — thread pool)
+        prompt = prompt_template.format(
+            context=context,
+            history=history_block,
+            question=message,
+        )
         answer = await self._llm.invoke(prompt)
 
-        logger.info("rag_answer_done", session_id=session_id, chunks_used=len(chunks), mode=mode)
-
+        logger.info(
+            "rag_answer_done",
+            session_id=session_id,
+            chunks_used=len(chunks),
+            mode=mode,
+        )
         return ChatResponse(
             session_id=session_id,
             answer=answer,

@@ -11,7 +11,8 @@ Requires backend running at localhost:8000:
 
 Features:
   - Chat interface with user/assistant bubbles
-  - Concise / Detailed mode toggle
+  - Concise / Detailed / Structured mode toggle
+  - Retrieval profile selector
   - Top-K slider for retrieval tuning
   - PDF report upload (routes to /chat/report)
   - Tool badge on every response (RAG / Drug Tool / Report Tool)
@@ -26,14 +27,14 @@ import streamlit as st
 from datetime import datetime
 
 from api_client import get_health_details, send_message, send_report, ChatResult
-from quality_eval import summarize_response_quality
+
 # ── Page config ───────────────────────────────────────────────────────────────
 
 st.set_page_config(
-    page_title  = "MedQA Assistant",
-    page_icon   = "🏥",
-    layout      = "wide",
-    initial_sidebar_state = "expanded",
+    page_title="MedQA Assistant",
+    page_icon="🏥",
+    layout="wide",
+    initial_sidebar_state="expanded",
 )
 
 # ── Custom CSS — dark medical/clinical theme ──────────────────────────────────
@@ -127,7 +128,8 @@ html, body, [class*="css"] {
     margin-right: 6px;
 }
 .badge-rag    { background: #1a2e4a; color: #388bfd; border: 1px solid #1f3c5e; }
-.badge-drug   { background: #1e3a2f; color: #3fb950; border: 1px solid #2d5a3d; }
+.badge-drug     { background: #1e3a2f; color: #3fb950; border: 1px solid #2d5a3d; }
+.badge-drug-rag { background: #1a3a2a; color: #58d68d; border: 1px solid #2ecc71; }
 .badge-report { background: #2e2419; color: #d29922; border: 1px solid #4a3820; }
 
 /* ── Timestamp ── */
@@ -194,13 +196,6 @@ section[data-testid="stSidebar"] .block-container { padding-top: 1rem; }
 /* ── Divider ── */
 hr { border-color: #21262d; }
 
-/* ── Scrollable chat container ── */
-.chat-scroll {
-    max-height: 62vh;
-    overflow-y: auto;
-    padding-right: 4px;
-}
-
 /* ── Input styling ── */
 .stTextInput input, .stTextArea textarea {
     background-color: #161b22 !important;
@@ -227,17 +222,6 @@ hr { border-color: #21262d; }
 .stButton button:hover {
     background-color: #30363d !important;
     border-color: #388bfd !important;
-}
-
-/* ── Send button ── */
-.stButton.send-btn button {
-    background-color: #1f6feb !important;
-    border-color: #1f6feb !important;
-    color: white !important;
-    font-weight: 500 !important;
-}
-.stButton.send-btn button:hover {
-    background-color: #388bfd !important;
 }
 
 /* ── Radio / toggle ── */
@@ -280,104 +264,6 @@ hr { border-color: #21262d; }
 }
 .source-score { color: #3fb950; }
 .source-name  { color: #7d8590; }
-
-/* ── Live quality cards ── */
-.quality-wrap {
-    margin: 0.55rem 0 0.5rem 0.25rem;
-    padding: 0.8rem 0.85rem;
-    border: 1px solid #21262d;
-    border-radius: 12px;
-    background:
-        radial-gradient(circle at top right, rgba(56,139,253,0.12), transparent 32%),
-        linear-gradient(135deg, #11161d 0%, #151b23 100%);
-}
-.quality-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 0.75rem;
-    gap: 12px;
-}
-.quality-title {
-    font-size: 0.68rem;
-    color: #7d8590;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    font-family: 'IBM Plex Mono', monospace;
-}
-.quality-overall {
-    display: inline-flex;
-    align-items: baseline;
-    gap: 8px;
-    padding: 0.35rem 0.55rem;
-    border-radius: 999px;
-    border: 1px solid rgba(56,139,253,0.35);
-    background: rgba(56,139,253,0.12);
-}
-.quality-overall-score {
-    color: #e6edf3;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.9rem;
-    font-weight: 600;
-}
-.quality-overall-label {
-    color: #8b949e;
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-}
-.quality-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-    gap: 0.55rem;
-}
-.quality-card {
-    border: 1px solid #21262d;
-    border-radius: 10px;
-    padding: 0.65rem 0.75rem;
-    background: rgba(13,17,23,0.65);
-}
-.quality-card-title {
-    font-size: 0.66rem;
-    color: #7d8590;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    font-family: 'IBM Plex Mono', monospace;
-}
-.quality-card-score {
-    margin-top: 0.35rem;
-    font-size: 1rem;
-    color: #e6edf3;
-    font-family: 'IBM Plex Mono', monospace;
-    font-weight: 600;
-}
-.quality-card-label {
-    margin-top: 0.1rem;
-    font-size: 0.72rem;
-    color: #3fb950;
-}
-.quality-card-range {
-    margin-top: 0.22rem;
-    font-size: 0.64rem;
-    color: #8b949e;
-    font-family: 'IBM Plex Mono', monospace;
-    line-height: 1.35;
-}
-.quality-note {
-    margin-top: 0.65rem;
-    font-size: 0.7rem;
-    color: #6e7681;
-    font-family: 'IBM Plex Mono', monospace;
-}
-.quality-subtitle {
-    margin-top: 0.9rem;
-    margin-bottom: 0.45rem;
-    font-size: 0.66rem;
-    color: #7d8590;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    font-family: 'IBM Plex Mono', monospace;
-}
 </style>
 """, unsafe_allow_html=True)
 
@@ -387,132 +273,29 @@ hr { border-color: #21262d; }
 def _new_session_id() -> str:
     return uuid.uuid4().hex[:12]
 
-if "session_id"   not in st.session_state: st.session_state.session_id   = _new_session_id()
-if "messages"     not in st.session_state: st.session_state.messages     = []
-if "mode"         not in st.session_state: st.session_state.mode         = "structured"
-if "top_k"        not in st.session_state: st.session_state.top_k        = 8
+
+if "session_id"        not in st.session_state: st.session_state.session_id        = _new_session_id()
+if "messages"          not in st.session_state: st.session_state.messages          = []
+if "mode"              not in st.session_state: st.session_state.mode              = "structured"
+if "top_k"             not in st.session_state: st.session_state.top_k             = 8
 if "retrieval_profile" not in st.session_state: st.session_state.retrieval_profile = "high_recall"
-if "pdf_bytes"    not in st.session_state: st.session_state.pdf_bytes    = None
-if "pdf_filename" not in st.session_state: st.session_state.pdf_filename = None
+if "pdf_bytes"         not in st.session_state: st.session_state.pdf_bytes         = None
+if "pdf_filename"      not in st.session_state: st.session_state.pdf_filename      = None
 
 
 # ── Tool badge helper ─────────────────────────────────────────────────────────
 
 def _tool_badge(tool_used: str | None) -> str:
-    if tool_used == "drug_tool":
+    if tool_used == "drug_tool_fallback":
+        return '<span class="badge badge-drug">💊 Drug Tool (Live)</span>'
+    elif tool_used == "drug_rag":
+        return '<span class="badge badge-drug-rag">💊 Drug RAG</span>'
+    elif tool_used == "drug_tool":
         return '<span class="badge badge-drug">💊 Drug Tool</span>'
     elif tool_used == "report_tool":
         return '<span class="badge badge-report">📄 Report Tool</span>'
     else:
         return '<span class="badge badge-rag">🔬 RAG</span>'
-
-
-def _quality_card(title: str, score: float, label: str) -> str:
-    return (
-        '<div class="quality-card">'
-        f'<div class="quality-card-title">{title}</div>'
-        f'<div class="quality-card-score">{round(score * 100)}%</div>'
-        f'<div class="quality-card-label">{label}</div>'
-        '</div>'
-    )
-
-
-def _quality_value(quality: dict, key: str, fallback: float = 0.0) -> float:
-    value = quality.get(key, fallback)
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return fallback
-
-
-def _quality_label(quality: dict, key: str, score: float) -> str:
-    labels = quality.get("labels", {})
-    if isinstance(labels, dict):
-        label = labels.get(key)
-        if isinstance(label, str) and label:
-            return label
-    if score >= 0.85:
-        return "Excellent"
-    if score >= 0.7:
-        return "Strong"
-    if score >= 0.55:
-        return "Moderate"
-    return "Weak"
-
-
-def _metric_card(title: str, score: float | None) -> str:
-    metric_ranges = {
-        "Precision": (0.60, 0.75),
-        "Recall": (0.50, 0.70),
-        "F1": (0.55, 0.70),
-        "ROUGE-1": (0.55, 0.70),
-        "ROUGE-2": (0.25, 0.40),
-        "ROUGE-L": (0.45, 0.60),
-        "BLEU": (0.20, 0.35),
-    }
-    minimum, strong = metric_ranges.get(title, (0.0, 1.0))
-    if score is None:
-        score_text = "n/a"
-        label = "Unavailable"
-    else:
-        score_text = f"{score:.2f}"
-        if score >= strong:
-            label = "Great"
-        elif score >= minimum:
-            label = "Good"
-        else:
-            label = "Below target"
-    return (
-        '<div class="quality-card">'
-        f'<div class="quality-card-title">{title}</div>'
-        f'<div class="quality-card-score">{score_text}</div>'
-        f'<div class="quality-card-label">{label}</div>'
-        f'<div class="quality-card-range">min {minimum:.2f}  |  great {strong:.2f}</div>'
-        '</div>'
-    )
-
-
-def _quality_panel(quality: dict, latency_seconds: float | None) -> str:
-    accuracy_score = _quality_value(quality, "accuracy_score")
-    relevance_score = _quality_value(quality, "relevance_score")
-    groundedness_score = _quality_value(quality, "groundedness_score")
-    safety_score = _quality_value(quality, "safety_score")
-    latency_score = _quality_value(quality, "latency_score")
-    overall_score = _quality_value(quality, "overall_score")
-
-    summary_cards = "".join([
-        _quality_card("Accuracy", accuracy_score, _quality_label(quality, "accuracy", accuracy_score)),
-        _quality_card("Relevance", relevance_score, _quality_label(quality, "relevance", relevance_score)),
-        _quality_card("Grounding", groundedness_score, _quality_label(quality, "groundedness", groundedness_score)),
-        _quality_card("Safety", safety_score, _quality_label(quality, "safety", safety_score)),
-        _quality_card("Latency", latency_score, _quality_label(quality, "latency", latency_score)),
-    ])
-    metrics = quality.get("metrics", {})
-    metric_cards = "".join([
-        _metric_card("Precision", metrics.get("precision")),
-        _metric_card("Recall", metrics.get("recall")),
-        _metric_card("F1", metrics.get("f1")),
-        _metric_card("ROUGE-1", metrics.get("rouge_1")),
-        _metric_card("ROUGE-2", metrics.get("rouge_2")),
-        _metric_card("ROUGE-L", metrics.get("rouge_l")),
-        _metric_card("BLEU", metrics.get("bleu")),
-    ])
-    latency_text = f"{latency_seconds:.2f}s" if latency_seconds is not None else "n/a"
-    return (
-        '<div class="quality-wrap">'
-        '<div class="quality-header">'
-        '<div class="quality-title">Live Response Quality Signals</div>'
-        '<div class="quality-overall">'
-        f'<span class="quality-overall-score">{round(overall_score * 100)}%</span>'
-        f'<span class="quality-overall-label">{_quality_label(quality, "overall", overall_score)}</span>'
-        '</div>'
-        '</div>'
-        f'<div class="quality-grid">{summary_cards}</div>'
-        '<div class="quality-subtitle">Formal Overlap Metrics</div>'
-        f'<div class="quality-grid">{metric_cards}</div>'
-        f'<div class="quality-note">Overlap metrics vs {quality.get("metric_basis", "unavailable")} · measured latency {latency_text}</div>'
-        '</div>'
-    )
 
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
@@ -538,15 +321,15 @@ with st.sidebar:
     mode_options = ["concise", "detailed", "structured"]
     mode_index = mode_options.index(st.session_state.mode) if st.session_state.mode in mode_options else 0
     mode = st.radio(
-        label     = "mode",
-        options   = mode_options,
-        index     = mode_index,
-        format_func = lambda x: (
+        label="mode",
+        options=mode_options,
+        index=mode_index,
+        format_func=lambda x: (
             "⚡ Concise  (~8-12s)" if x == "concise"
             else "📋 Detailed  (~15-30s)" if x == "detailed"
             else "🧩 Structured  (~15-30s)"
         ),
-        label_visibility = "collapsed",
+        label_visibility="collapsed",
     )
     st.session_state.mode = mode
 
@@ -565,11 +348,7 @@ with st.sidebar:
         label_visibility="collapsed",
     )
     st.session_state.retrieval_profile = retrieval_profile
-    profile_top_k = {
-        "high_precision": 5,
-        "balanced": 8,
-        "high_recall": 12,
-    }[retrieval_profile]
+    profile_top_k = {"high_precision": 5, "balanced": 8, "high_recall": 12}[retrieval_profile]
     if st.session_state.top_k != profile_top_k:
         st.session_state.top_k = profile_top_k
 
@@ -582,11 +361,11 @@ with st.sidebar:
     # Top-K
     st.markdown('<div class="sidebar-label">Retrieval — Top K Chunks</div>', unsafe_allow_html=True)
     top_k = st.slider(
-        label     = "top_k",
-        min_value = 1,
-        max_value = 20,
-        value     = st.session_state.top_k,
-        label_visibility = "collapsed",
+        label="top_k",
+        min_value=1,
+        max_value=20,
+        value=st.session_state.top_k,
+        label_visibility="collapsed",
     )
     st.session_state.top_k = top_k
     st.caption(f"{top_k} chunks retrieved from Qdrant per query")
@@ -596,10 +375,10 @@ with st.sidebar:
     # PDF Upload
     st.markdown('<div class="sidebar-label">📎 Upload Medical Report</div>', unsafe_allow_html=True)
     uploaded_file = st.file_uploader(
-        label       = "pdf_upload",
-        type        = ["pdf"],
-        label_visibility = "collapsed",
-        help        = "Upload a PDF medical report. Will be analysed on next message send.",
+        label="pdf_upload",
+        type=["pdf"],
+        label_visibility="collapsed",
+        help="Upload a PDF medical report. Will be analysed on next message send.",
     )
     if uploaded_file is not None:
         st.session_state.pdf_bytes    = uploaded_file.read()
@@ -637,14 +416,13 @@ with st.sidebar:
     st.markdown("---")
     st.markdown(
         '<div style="font-size:0.65rem;color:#484f58;font-family:\'IBM Plex Mono\',monospace;">'
-        'MedQA RAG Chatbot<br>Phase 3 — Local Dev<br>Qdrant · Llama 3.1 8B · MedQuAD</div>',
+        'MedQA RAG Chatbot<br>Phase 5 — Evaluation<br>Qdrant · Mistral · MedQuAD</div>',
         unsafe_allow_html=True,
     )
 
 
 # ── Main area ─────────────────────────────────────────────────────────────────
 
-# Header
 st.markdown("""
 <div class="app-header">
     <div>
@@ -679,7 +457,6 @@ with chat_container:
                     unsafe_allow_html=True,
                 )
             else:
-                # Bot message
                 if msg.get("error"):
                     st.markdown(
                         f'<div class="bot-msg-error">⚠ {msg["content"]}</div>',
@@ -700,12 +477,6 @@ with chat_container:
                         f'<div class="msg-time">{msg["time"]}</div>',
                         unsafe_allow_html=True,
                     )
-
-                    if msg.get("quality"):
-                        st.markdown(
-                            _quality_panel(msg["quality"], msg.get("latency_seconds")),
-                            unsafe_allow_html=True,
-                        )
 
                     # Sources expander
                     sources = msg.get("sources", [])
@@ -729,7 +500,6 @@ with chat_container:
 
 st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
 
-# Show PDF attached reminder above input
 if st.session_state.pdf_bytes:
     st.markdown(
         f'<div class="pdf-attached" style="margin-bottom:0.4rem">'
@@ -742,16 +512,15 @@ col_input, col_send = st.columns([5, 1])
 
 with col_input:
     user_input = st.text_input(
-        label       = "message",
-        placeholder = "Ask a medical question, mention a drug, or upload a PDF report...",
-        label_visibility = "collapsed",
-        key         = "chat_input",
+        label="message",
+        placeholder="Ask a medical question, mention a drug, or upload a PDF report...",
+        label_visibility="collapsed",
+        key="chat_input",
     )
 
 with col_send:
     send_clicked = st.button("Send →", use_container_width=True, type="primary")
 
-# Mode reminder caption
 mode_label = (
     "⚡ Concise" if st.session_state.mode == "concise"
     else "📋 Detailed" if st.session_state.mode == "detailed"
@@ -772,72 +541,83 @@ st.caption(
 if send_clicked and user_input.strip():
     now = datetime.now().strftime("%H:%M:%S")
 
-    # Add user message to history
     st.session_state.messages.append({
-        "role"    : "user",
-        "content" : user_input.strip(),
-        "time"    : now,
+        "role":    "user",
+        "content": user_input.strip(),
+        "time":    now,
     })
 
-    # Call backend
     spinner_text = (
-        "Thinking..."
-        if st.session_state.mode == "concise"
-        else "Generating detailed response..."
-        if st.session_state.mode == "detailed"
+        "Thinking..." if st.session_state.mode == "concise"
+        else "Generating detailed response..." if st.session_state.mode == "detailed"
         else "Building structured answer..."
     )
+
     with st.spinner(spinner_text):
         used_report = st.session_state.pdf_bytes is not None
         if used_report:
             result: ChatResult = send_report(
-                session_id = st.session_state.session_id,
-                message    = user_input.strip(),
-                pdf_bytes  = st.session_state.pdf_bytes,
-                filename   = st.session_state.pdf_filename or "report.pdf",
-                mode       = st.session_state.mode,
+                session_id=st.session_state.session_id,
+                message=user_input.strip(),
+                pdf_bytes=st.session_state.pdf_bytes,
+                filename=st.session_state.pdf_filename or "report.pdf",
+                mode=st.session_state.mode,
             )
-            # Clear PDF after sending — one-shot
             st.session_state.pdf_bytes    = None
             st.session_state.pdf_filename = None
         else:
             result: ChatResult = send_message(
-                session_id = st.session_state.session_id,
-                message    = user_input.strip(),
-                mode       = st.session_state.mode,
-                top_k      = st.session_state.top_k,
+                session_id=st.session_state.session_id,
+                message=user_input.strip(),
+                mode=st.session_state.mode,
+                top_k=st.session_state.top_k,
             )
-
-    quality = summarize_response_quality(
-        user_input.strip(),
-        result,
-        used_report=used_report,
-    )
 
     now_reply = datetime.now().strftime("%H:%M:%S")
 
     if result.error:
         st.session_state.messages.append({
-            "role"     : "assistant",
-            "content"  : result.error,
-            "time"     : now_reply,
-            "error"    : True,
+            "role":      "assistant",
+            "content":   result.error,
+            "time":      now_reply,
+            "error":     True,
             "tool_used": None,
-            "sources"  : [],
-            "quality"  : quality.__dict__,
-            "latency_seconds": result.latency_seconds,
+            "sources":   [],
         })
     else:
         st.session_state.messages.append({
-            "role"      : "assistant",
-            "content"   : result.answer,
-            "time"      : now_reply,
-            "tool_used" : result.tool_used,
-            "sources"   : result.sources,
+            "role":       "assistant",
+            "content":    result.answer,
+            "time":       now_reply,
+            "tool_used":  result.tool_used,
+            "sources":    result.sources,
             "source_url": result.source_url,
-            "error"     : False,
-            "quality"   : quality.__dict__,
-            "latency_seconds": result.latency_seconds,
+            "error":      False,
         })
 
     st.rerun()
+
+# ── Docs link ─────────────────────────────────────────────────────────────────
+
+st.markdown("""
+<div style="
+    background: #161b22;
+    border: 1px solid #21262d;
+    border-left: 3px solid #388bfd;
+    border-radius: 6px;
+    padding: 0.6rem 1rem;
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+">
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:0.75rem;color:#7d8590;">
+        📖 Project documentation available
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+if st.button("Open Docs →", key="open_docs"):
+    import webbrowser
+    webbrowser.open("file:///Users/dhairya/Projects/RAG_ChatBot/phase2_medqa_project/app/frontend/medqa_project_docs.html")
+

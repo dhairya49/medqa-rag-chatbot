@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: medqa-rag-api
+    runtime: python
+    buildCommand: pip install -r requirements-prod.txt && python -m spacy download en_core_web_sm
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: QDRANT_URL
+        sync: false
+      - key: QDRANT_API_KEY
+        sync: false
+      - key: QDRANT_COLLECTION
+        value: medquad_clean
+      - key: MISTRAL_API_KEY
+        sync: false

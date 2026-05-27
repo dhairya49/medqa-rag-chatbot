@@ -18,6 +18,22 @@ services:
       timeout: 5s
       retries: 5
 
+  # ── Redis (Session Memory) ────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: medqa_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes      # persist to disk (AOF)
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # ── FastAPI Backend ───────────────────────────────────────────────────────────
   api:
     build:
@@ -30,8 +46,11 @@ services:
       - .env
     environment:
       - QDRANT_HOST=qdrant          # override localhost → qdrant service name
+      - REDIS_URL=redis://redis:6379  # override localhost → redis service name
     depends_on:
       qdrant:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
@@ -57,3 +76,4 @@ services:
 
 volumes:
   qdrant_storage:
+  redis_data:                                  # named volume for Redis AOF persistence

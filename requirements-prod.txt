@@ -8,7 +8,8 @@ qdrant-client>=1.9.1
 
 # ── Embeddings ────────────────────────────────────────────────────────────────
 sentence-transformers>=3.0.1
-torch>=2.0.0
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch>=2.0.0+cpu
 
 # ── LLM / Agent ───────────────────────────────────────────────────────────────
 langchain>=0.2.1
@@ -31,4 +32,3 @@ pydantic-settings>=2.2.1
 python-dotenv>=1.0.1
 structlog>=24.2.0
 numpy>=1.26.4
-redis>=5.0.0
